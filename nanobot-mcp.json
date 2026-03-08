@@ -1,0 +1,17 @@
+{
+  "tools": {
+    "mcpServers": {
+      "parsifal": {
+        "type": "stdio",
+        "command": "python3",
+        "args": ["/home/node/.openclaw/workspace/parsifal/parsifal-overlay/mcp_server.py"],
+        "toolTimeout": 30,
+        "env": {
+          "PARSIFAL_SPEC_ROOT": "/home/node/.openclaw/workspace/parsifal/kernel-rca-bot",
+          "PARSIFAL_ARTIFACTS_ROOT": "/home/node/.openclaw/workspace/parsifal/artifacts",
+          "PARSIFAL_TEMPLATES_ROOT": "/home/node/.openclaw/workspace/parsifal/parsifal-overlay/templates"
+        }
+      }
+    }
+  }
+}
