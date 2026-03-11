@@ -37,6 +37,7 @@ python3 -m runloop_agent.responses_runloop \
 Option B (script mode; works from inside `runloop_agent/`).
 
 If your OpenAI gateway does not support `/v1/responses` (HTTP 404), use `fc_runloop.py` instead (it calls `/v1/chat/completions`).
+Also ensure `OPENAI_BASE_URL` includes `/v1` when using an OpenAI-compatible gateway (e.g. `http://host:3001/v1`).
 
 ```bash
 cd parsifal/parsifal-overlay/simple-rla/runloop_agent
