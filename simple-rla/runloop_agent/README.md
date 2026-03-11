@@ -12,7 +12,41 @@ Goals:
 
 This code intentionally avoids third-party deps (stdlib only) so it's easy to embed.
 
+## Workflow Configuration
+
+The agent behavior is defined in `workflow.yaml` (configurable via `--workflow`):
+
+```yaml
+name: kernel_rca
+version: "1.0"
+
+llm:
+  system_prompt: |
+    You are a kernel RCA runloop agent...
+  initial_message_template: |
+    Start RCA for Jira issue {jira_key}...
+  default_message: "List available tools..."
+
+execution:
+  max_steps: 12
+  request_timeout_s: 300
+
+tools:
+  on_error: continue  # continue|abort
+  include_traceback: false
+```
+
+Variable substitution in `initial_message_template`: `{jira_key}` is replaced with the value from `--jira-key`.
+
 ## Quick Start (demo cycle)
+
+1) Install dependency (only PyYAML is required for workflow):
+
+```bash
+pip install pyyaml
+```
+
+2) Create configs (`example.mcp.toml` + `workflow.yaml` already provided).
 
 1) Create a config TOML:
 

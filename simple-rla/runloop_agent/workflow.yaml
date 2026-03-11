@@ -1,0 +1,72 @@
+# Kernel RCA Runloop Workflow Configuration
+# This file defines the agent behavior for the RCA runloop.
+
+name: kernel_rca
+version: "1.0"
+
+description: |
+  A runloop agent that fetches Jira issues, analyzes them using available tools,
+  and produces RCA summaries with DEBUG_STEPS and KEY_EVIDENCE.
+
+# LLM interaction configuration
+llm:
+  # System prompt sent at the beginning of each conversation
+  system_prompt: |
+    You are a kernel RCA runloop agent.
+    Use tools to fetch Jira issues (jira_get/jira_search), scan code, and run device checks.
+    Keep outputs short; prefer tool calls.
+    When you have enough evidence, write a final RCA summary.
+  
+  # Initial user message template. Available variables:
+  #   {jira_key} - the Jira issue key provided via --jira-key
+  #   {step} - current step number (always 1 for initial message)
+  initial_message_template: |
+    Start RCA for Jira issue {jira_key}. Fetch details and propose first-round DEBUG_STEPS.
+  
+  # Message to send when no jira_key is provided
+  default_message: |
+    List available tools and explain your plan.
+
+# Execution control
+execution:
+  # Maximum number of LLM interaction steps
+  max_steps: 12
+  
+  # Timeout for LLM requests (seconds)
+  request_timeout_s: 300
+
+# Tool execution handling
+tools:
+  # What to do when a tool call fails:
+  #   - continue: report error to LLM and continue
+  #   - abort: stop the runloop immediately
+  on_error: continue
+  
+  # Whether to include stack traces in error reports to LLM
+  include_traceback: false
+
+# Exit conditions (checked after each LLM response)
+exit_conditions:
+  # Exit when LLM returns no tool calls (final answer)
+  - name: no_tool_calls
+    description: LLM provided final answer without requesting tools
+    enabled: true
+  
+  # Exit when max_steps is reached
+  - name: max_steps_reached
+    description: Maximum number of steps reached
+    enabled: true
+    
+  # Exit when specific text pattern appears in response (optional)
+  # - name: explicit_done
+  #   description: Response contains [DONE] marker
+  #   pattern: "\[DONE\]"
+  #   enabled: false
+
+# Response formatting
+output:
+  # If true, print raw JSON when no text content available
+  print_raw_on_empty: true
+  
+  # Pretty-print JSON output
+  pretty_print: true
