@@ -124,13 +124,21 @@ class JiraClient:
             with urllib.request.urlopen(req, timeout=self._cfg.timeout_s, context=self._ssl_context()) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
                 logger.info("jira.response status=%s bytes=%d", getattr(resp, "status", "?"), len(raw))
+                # Debug: log first 500 chars of raw response to diagnose non-JSON returns
+                logger.debug("jira.response.raw preview=%s", raw[:500].replace("\n", " "))
                 if not raw.strip():
                     return {}
-                return json.loads(raw)
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError as e:
+                    logger.error("jira.json_parse_error error=%s raw_preview=%s", e, raw[:500].replace("\n", " "))
+                    raise RuntimeError(f"Jira returned non-JSON (status {getattr(resp, 'status', '?')}): {raw[:200]}") from e
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            logger.error("jira.http_error code=%s raw=%s", exc.code, raw[:500])
             raise RuntimeError(f"Jira HTTP {exc.code}: {raw[:2000]}")
         except urllib.error.URLError as exc:
+            logger.error("jira.url_error error=%s", exc)
             raise RuntimeError(f"Jira URL error: {exc}")
 
 
