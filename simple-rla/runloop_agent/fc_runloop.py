@@ -140,14 +140,17 @@ async def main() -> None:
                     log.info("tool_call name=%s fq=%s call_id=%s", tc.name, fq, tc.id)
                     if not fq:
                         error_msg = {"error": f"unknown tool: {tc.name}"}
+                        log.error("tool_error unknown_tool name=%s", tc.name)
                         tool_out = json.dumps(error_msg)
                     else:
                         try:
                             tool_args = json.loads(tc.arguments_json) if tc.arguments_json.strip() else {}
                             if not isinstance(tool_args, dict):
                                 raise ValueError("tool arguments must be an object")
+                            log.info("tool_exec name=%s fq=%s args=%s", tc.name, fq, tool_args)
                             tool_out = await agent.call_tool(fq, tool_args)
                         except Exception as exc:
+                            log.error("tool_error name=%s fq=%s error=%s", tc.name, fq, exc)
                             if workflow.tools.include_traceback:
                                 import traceback
                                 tool_out = json.dumps({"error": str(exc), "traceback": traceback.format_exc()})
