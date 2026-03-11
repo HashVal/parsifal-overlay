@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -74,7 +76,16 @@ async def main() -> None:
     p.add_argument("--model", required=True, help="OpenAI model id")
     p.add_argument("--jira-key", default="", help="Optional Jira key to start from")
     p.add_argument("--max-steps", type=int, default=12)
+    p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"), help="DEBUG|INFO|WARNING|ERROR")
     args = p.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    log = logging.getLogger("simple_rla.fc_runloop")
+    log.info("start model=%s jira_key=%s max_steps=%s", args.model, args.jira_key, args.max_steps)
 
     cfg = load_config(args.config)
 
@@ -99,7 +110,8 @@ async def main() -> None:
         else:
             messages.append({"role": "user", "content": "List available tools and explain what you can do."})
 
-        for _step in range(args.max_steps):
+        for step in range(1, args.max_steps + 1):
+            log.info("step=%d chat_completions", step)
             mm = chat_completions(
                 model=args.model,
                 messages=messages,
@@ -150,4 +162,8 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.getLogger("simple_rla.fc_runloop").warning("interrupted")
+        raise SystemExit(130)

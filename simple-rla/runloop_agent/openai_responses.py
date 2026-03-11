@@ -16,11 +16,15 @@ Note: The Responses schema has evolved. This client is written to be tolerant:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+
+
+logger = logging.getLogger("simple_rla.openai.responses")
 
 
 class OpenAIError(RuntimeError):
@@ -128,6 +132,7 @@ def create_response(
     timeout_s: int = 90,
 ) -> ResponseResult:
     url = _base_url() + "/responses"
+    logger.info("openai.request url=%s model=%s", url, model)
 
     payload: dict[str, Any] = {
         "model": model,
@@ -159,9 +164,17 @@ def create_response(
             raw = resp.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
-        raise OpenAIError(f"HTTP {exc.code}: {raw[:2000]}")
+        if exc.code == 404 and url.endswith("/responses"):
+            raise OpenAIError(
+                "HTTP 404 on /responses. Your OpenAI-compatible gateway likely does not implement the Responses API. "
+                "Use the ChatCompletions runloop (fc_runloop.py) or point OPENAI_BASE_URL to a backend that supports /v1/responses. "
+                f"URL={url} body={raw[:500]}"
+            )
+        raise OpenAIError(f"HTTP {exc.code} URL={url} body={raw[:2000]}")
     except urllib.error.URLError as exc:
         raise OpenAIError(f"URL error: {exc}")
+
+    logger.debug("openai.response bytes=%d", len(raw))
 
     data = json.loads(raw)
     rid = data.get("id")

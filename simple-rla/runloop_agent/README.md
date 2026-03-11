@@ -30,10 +30,13 @@ python3 -m runloop_agent.responses_runloop \
   --config runloop_agent/example.mcp.toml \
   --model gpt-4.1-mini \
   --jira-key KERNEL-123 \
-  --max-steps 16
+  --max-steps 16 \
+  --log-level DEBUG
 ```
 
-Option B (script mode; works from inside `runloop_agent/`):
+Option B (script mode; works from inside `runloop_agent/`).
+
+If your OpenAI gateway does not support `/v1/responses` (HTTP 404), use `fc_runloop.py` instead (it calls `/v1/chat/completions`).
 
 ```bash
 cd parsifal/parsifal-overlay/simple-rla/runloop_agent
@@ -43,7 +46,8 @@ python3 responses_runloop.py \
   --config example.mcp.toml \
   --model gpt-4.1-mini \
   --jira-key KERNEL-123 \
-  --max-steps 16
+  --max-steps 16 \
+  --log-level DEBUG
 ```
 
 Optional: Parsifal overlay demo (requires `mcp` package installed for the overlay server; not needed for Jira-only demo):
