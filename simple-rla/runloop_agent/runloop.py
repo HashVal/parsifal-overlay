@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from .config import RunloopConfig
-from .mcp_stdio_client import McpStdioClient, McpToolSpec, RunloopArtifacts
+from runloop_agent.config import RunloopConfig
+from runloop_agent.mcp_stdio_client import McpStdioClient, McpToolSpec, RunloopArtifacts
 
 
 @dataclass(frozen=True)

@@ -20,12 +20,27 @@ This code intentionally avoids third-party deps (stdlib only) so it's easy to em
 
 2) Run the OpenAI Responses runloop (talks to MCP tools):
 
+Option A (module mode; recommended):
+
 ```bash
 cd parsifal/parsifal-overlay/simple-rla
 export OPENAI_API_KEY=...   # required
 
 python3 -m runloop_agent.responses_runloop \
   --config runloop_agent/example.mcp.toml \
+  --model gpt-4.1-mini \
+  --jira-key KERNEL-123 \
+  --max-steps 16
+```
+
+Option B (script mode; works from inside `runloop_agent/`):
+
+```bash
+cd parsifal/parsifal-overlay/simple-rla/runloop_agent
+export OPENAI_API_KEY=...   # required
+
+python3 responses_runloop.py \
+  --config example.mcp.toml \
   --model gpt-4.1-mini \
   --jira-key KERNEL-123 \
   --max-steps 16

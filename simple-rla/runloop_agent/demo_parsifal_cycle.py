@@ -18,11 +18,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from .config import load_config
-from .runloop import RunloopAgent, ToolCall
+# Allow running as a script from inside the runloop_agent/ directory:
+#   python3 demo_parsifal_cycle.py ...
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from runloop_agent.config import load_config
+from runloop_agent.runloop import RunloopAgent, ToolCall
 
 
 def _parse_args() -> argparse.Namespace:

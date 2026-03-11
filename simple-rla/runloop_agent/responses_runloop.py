@@ -4,11 +4,18 @@ import argparse
 import asyncio
 import json
 import re
+import sys
+from pathlib import Path
 from typing import Any, Dict
 
-from .config import load_config
-from .openai_responses import create_response
-from .runloop import RunloopAgent
+# Allow running as a script from inside the runloop_agent/ directory:
+#   python3 responses_runloop.py ...
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from runloop_agent.config import load_config
+from runloop_agent.openai_responses import create_response
+from runloop_agent.runloop import RunloopAgent
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")

@@ -4,12 +4,19 @@ import argparse
 import asyncio
 import json
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from .config import load_config
-from .openai_fc import chat_completions
-from .runloop import RunloopAgent
+# Allow running as a script from inside the runloop_agent/ directory:
+#   python3 fc_runloop.py ...
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from runloop_agent.config import load_config
+from runloop_agent.openai_fc import chat_completions
+from runloop_agent.runloop import RunloopAgent
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
