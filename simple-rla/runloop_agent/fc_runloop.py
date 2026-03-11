@@ -149,6 +149,8 @@ async def main() -> None:
                                 raise ValueError("tool arguments must be an object")
                             log.info("tool_exec name=%s fq=%s args=%s", tc.name, fq, tool_args)
                             tool_out = await agent.call_tool(fq, tool_args)
+                            # Log truncated result for debugging
+                            log.info("tool_result name=%s fq=%s len=%d content=%s", tc.name, fq, len(tool_out), tool_out[:1000])
                         except Exception as exc:
                             log.error("tool_error name=%s fq=%s error=%s", tc.name, fq, exc)
                             if workflow.tools.include_traceback:
