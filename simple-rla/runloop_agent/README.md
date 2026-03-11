@@ -54,7 +54,7 @@ pip install pyyaml
 
 - `parsifal/parsifal-overlay/simple-rla/runloop_agent/example.mcp.toml`
 
-2) Run the OpenAI Responses runloop (talks to MCP tools):
+2) Run the OpenAI Responses runloop (talks to MCP tools). Use `--dump` to save each round context:
 
 Option A (module mode; recommended):
 
@@ -67,10 +67,11 @@ python3 -m runloop_agent.responses_runloop \
   --model gpt-4.1-mini \
   --jira-key KERNEL-123 \
   --max-steps 16 \
-  --log-level DEBUG
+  --log-level DEBUG \
+  --dump
 ```
 
-Option B (script mode; works from inside `runloop_agent/`).
+Option B (script mode; works from inside `runloop_agent/`). Use `--dump` to save each round context to `./dumps/<timestamp>/`.
 
 If your OpenAI gateway does not support `/v1/responses` (HTTP 404), use `fc_runloop.py` instead (it calls `/v1/chat/completions`).
 Also ensure `OPENAI_BASE_URL` includes `/v1` when using an OpenAI-compatible gateway (e.g. `http://host:3001/v1`).

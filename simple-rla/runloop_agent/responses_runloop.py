@@ -19,6 +19,7 @@ from runloop_agent.config import load_config
 from runloop_agent.openai_responses import create_response
 from runloop_agent.runloop import RunloopAgent
 from runloop_agent.workflow_config import load_workflow, format_message, exit_enabled
+from runloop_agent.dump_utils import DumpManager, last_user_input
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -78,6 +79,7 @@ async def main() -> None:
     p.add_argument("--model", required=True, help="OpenAI model id")
     p.add_argument("--jira-key", default="", help="Optional Jira key to start from")
     p.add_argument("--max-steps", type=int, default=None, help="Override max steps from workflow")
+    p.add_argument("--dump", action="store_true", help="Enable dump mode (save each round context)")
     p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"), help="DEBUG|INFO|WARNING|ERROR")
     args = p.parse_args()
 
@@ -105,6 +107,18 @@ async def main() -> None:
         initial_message = format_message(workflow.llm.initial_message_template, {"jira_key": args.jira_key})
     else:
         initial_message = workflow.llm.default_message
+
+    dumper = DumpManager.create() if args.dump else None
+    if dumper:
+        log.info("dump.mode enabled dir=%s", dumper.root)
+        dumper.write_meta({
+            "model": args.model,
+            "workflow": workflow.name,
+            "workflow_path": args.workflow,
+            "config_path": args.config,
+            "system": system_prompt,
+            "initial_message": initial_message,
+        })
 
     async with RunloopAgent(cfg) as agent:
         mcp_tools = agent.list_tools()
@@ -136,10 +150,13 @@ async def main() -> None:
             if rr.function_calls:
                 # For subsequent turns, only send tool outputs (Responses keeps context via previous_response_id).
                 input_items = []
+                tool_calls_dump = []
+                tool_results_dump = []
 
                 for fc in rr.function_calls:
                     fq = name_to_fq.get(fc.name)
                     log.info("tool_call name=%s fq=%s call_id=%s", fc.name, fq, fc.call_id)
+                    tool_calls_dump.append({"name": fc.name, "fq": fq, "id": fc.call_id, "arguments": fc.arguments_json})
                     if not fq:
                         out = json.dumps({"error": f"unknown tool: {fc.name}"})
                     else:
@@ -158,13 +175,39 @@ async def main() -> None:
                                 log.error("tool_error aborting name=%s error=%s", fc.name, exc)
                                 raise
 
+                    tool_results_dump.append({"name": fc.name, "fq": fq, "id": fc.call_id, "output": out})
                     input_items.append(_tool_out(fc.call_id, out))
+
+                if dumper:
+                    dumper.write_round(step, {
+                        "round": step,
+                        "model": args.model,
+                        "system": system_prompt,
+                        "qprompt": last_user_input(input_items),
+                        "input_items": input_items,
+                        "tools": [t.get("name") for t in tools],
+                        "tool_calls": tool_calls_dump,
+                        "tool_results": tool_results_dump,
+                        "response": {"output_text": rr.output_text, "function_calls": [fc.__dict__ for fc in rr.function_calls], "response_id": rr.response_id},
+                    })
 
                 continue
 
             # No tool calls -> final.
             if not no_tool_exit:
                 log.warning("exit_condition no_tool_calls disabled; exiting anyway")
+            if dumper:
+                dumper.write_round(step, {
+                    "round": step,
+                    "model": args.model,
+                    "system": system_prompt,
+                    "qprompt": last_user_input(input_items),
+                    "input_items": input_items,
+                    "tools": [t.get("name") for t in tools],
+                    "tool_calls": [],
+                    "tool_results": [],
+                    "response": {"output_text": rr.output_text, "function_calls": [], "response_id": rr.response_id},
+                })
             if rr.output_text:
                 print(rr.output_text)
             else:

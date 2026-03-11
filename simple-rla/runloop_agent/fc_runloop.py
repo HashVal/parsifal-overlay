@@ -20,6 +20,7 @@ from runloop_agent.config import load_config
 from runloop_agent.openai_fc import chat_completions
 from runloop_agent.runloop import RunloopAgent
 from runloop_agent.workflow_config import load_workflow, format_message, exit_enabled
+from runloop_agent.dump_utils import DumpManager, last_user_message
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -93,6 +94,7 @@ async def main() -> None:
     p.add_argument("--model", required=True, help="OpenAI model id")
     p.add_argument("--jira-key", default="", help="Optional Jira key to start from")
     p.add_argument("--max-steps", type=int, default=None, help="Override max steps from workflow")
+    p.add_argument("--dump", action="store_true", help="Enable dump mode (save each round context)")
     p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"), help="DEBUG|INFO|WARNING|ERROR")
     args = p.parse_args()
 
@@ -125,6 +127,18 @@ async def main() -> None:
     else:
         initial_message = workflow.llm.default_message
 
+    dumper = DumpManager.create() if args.dump else None
+    if dumper:
+        log.info("dump.mode enabled dir=%s", dumper.root)
+        dumper.write_meta({
+            "model": args.model,
+            "workflow": workflow.name,
+            "workflow_path": args.workflow,
+            "config_path": args.config,
+            "system": system_prompt,
+            "initial_message": initial_message,
+        })
+
     async with RunloopAgent(cfg) as agent:
         tools = agent.list_tools()
         log.info("mcp.tools count=%d", len(tools))
@@ -147,6 +161,9 @@ async def main() -> None:
                 timeout_s=workflow.execution.request_timeout_s,
             )
 
+            tool_calls_dump = []
+            tool_results_dump = []
+
             # Tool calls
             if mm.tool_calls:
                 messages.append({"role": "assistant", "content": mm.content, "tool_calls": [
@@ -161,6 +178,7 @@ async def main() -> None:
                 for tc in mm.tool_calls:
                     fq = tool_map.fc_to_fq.get(tc.name)
                     log.info("tool_call name=%s fq=%s call_id=%s", tc.name, fq, tc.id)
+                    tool_calls_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "arguments": tc.arguments_json})
                     if not fq:
                         error_msg = {"error": f"unknown tool: {tc.name}"}
                         log.error("tool_error unknown_tool name=%s", tc.name)
@@ -187,11 +205,26 @@ async def main() -> None:
                                 log.error("tool_error aborting name=%s error=%s", tc.name, exc)
                                 raise
 
+                    tool_results_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out})
+
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "name": tc.name,
                         "content": tool_out,
+                    })
+
+                if dumper:
+                    dumper.write_round(step, {
+                        "round": step,
+                        "model": args.model,
+                        "system": system_prompt,
+                        "qprompt": last_user_message(messages),
+                        "messages": messages,
+                        "tools": [t.get("function", {}).get("name") for t in openai_tools],
+                        "tool_calls": tool_calls_dump,
+                        "tool_results": tool_results_dump,
+                        "response": {"content": mm.content, "tool_calls": [tc.__dict__ for tc in mm.tool_calls]},
                     })
 
                 continue
@@ -200,6 +233,18 @@ async def main() -> None:
             if not no_tool_exit:
                 log.warning("exit_condition no_tool_calls disabled; exiting anyway")
             log.info("step=%d final_response content_len=%d", step, len(mm.content or ""))
+            if dumper:
+                dumper.write_round(step, {
+                    "round": step,
+                    "model": args.model,
+                    "system": system_prompt,
+                    "qprompt": last_user_message(messages),
+                    "messages": messages,
+                    "tools": [t.get("function", {}).get("name") for t in openai_tools],
+                    "tool_calls": [],
+                    "tool_results": [],
+                    "response": {"content": mm.content, "tool_calls": []},
+                })
             if mm.content:
                 print(mm.content)
             else:
