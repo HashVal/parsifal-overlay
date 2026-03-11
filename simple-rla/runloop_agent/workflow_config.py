@@ -24,6 +24,8 @@ class LLMConfig:
     system_prompt: str
     initial_message_template: str
     default_message: str
+    temperature: float
+    tool_choice: Any
 
 
 @dataclass(frozen=True)
@@ -106,6 +108,8 @@ def load_workflow(path: str | Path) -> WorkflowConfig:
             system_prompt=str(_safe_get(raw, "llm.system_prompt", "")),
             initial_message_template=str(_safe_get(raw, "llm.initial_message_template", "")),
             default_message=str(_safe_get(raw, "llm.default_message", "")),
+            temperature=float(_safe_get(raw, "llm.temperature", 0.2)),
+            tool_choice=_safe_get(raw, "llm.tool_choice", "auto"),
         ),
         execution=ExecutionConfig(
             max_steps=int(_safe_get(raw, "execution.max_steps", 12)),

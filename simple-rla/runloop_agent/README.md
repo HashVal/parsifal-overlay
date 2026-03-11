@@ -26,6 +26,8 @@ llm:
   initial_message_template: |
     Start RCA for Jira issue {jira_key}...
   default_message: "List available tools..."
+  temperature: 0.2
+  tool_choice: auto
 
 execution:
   max_steps: 12

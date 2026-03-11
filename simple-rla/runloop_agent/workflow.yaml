@@ -27,6 +27,10 @@ llm:
   default_message: |
     List available tools and explain your plan.
 
+  # LLM parameters
+  temperature: 0.2
+  tool_choice: auto
+
 # Execution control
 execution:
   # Maximum number of LLM interaction steps

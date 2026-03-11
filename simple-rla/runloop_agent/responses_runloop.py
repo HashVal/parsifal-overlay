@@ -81,6 +81,13 @@ async def main() -> None:
     p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"), help="DEBUG|INFO|WARNING|ERROR")
     args = p.parse_args()
 
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    log = logging.getLogger("simple_rla.responses_runloop")
+
     # Load workflow configuration
     workflow = load_workflow(args.workflow)
     max_steps = args.max_steps if args.max_steps is not None else workflow.execution.max_steps
@@ -89,12 +96,6 @@ async def main() -> None:
     if not max_steps_exit and args.max_steps is None:
         max_steps = 100000
 
-    logging.basicConfig(
-        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-
-    log = logging.getLogger("simple_rla.responses_runloop")
     log.info("start model=%s jira_key=%s max_steps=%s workflow=%s", args.model, args.jira_key, max_steps, workflow.name)
 
     cfg = load_config(args.config)
@@ -124,9 +125,9 @@ async def main() -> None:
                 model=args.model,
                 input_items=input_items,
                 tools=tools,
-                tool_choice="auto",
+                tool_choice=workflow.llm.tool_choice,
                 previous_response_id=prev_id,
-                temperature=0.2,
+                temperature=workflow.llm.temperature,
                 timeout_s=workflow.execution.request_timeout_s,
             )
             prev_id = rr.response_id

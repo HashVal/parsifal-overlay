@@ -59,6 +59,21 @@ def _build_tool_map(tools: dict) -> ToolMap:
     return ToolMap(fc_to_fq=fc_to_fq, fq_to_fc=fq_to_fc)
 
 
+def _redact(text: str) -> str:
+    # Basic redaction of obvious secrets
+    patterns = [
+        (r"(Bearer\s+)[A-Za-z0-9\-\._]+", r"\1<redacted>"),
+        (r"(token\s*[:=]\s*)[^\s\"']+", r"\1<redacted>"),
+        (r"(password\s*[:=]\s*)[^\s\"']+", r"\1<redacted>"),
+        (r"(secret\s*[:=]\s*)[^\s\"']+", r"\1<redacted>"),
+    ]
+    out = text
+    import re as _re
+    for pat, repl in patterns:
+        out = _re.sub(pat, repl, out, flags=_re.IGNORECASE)
+    return out
+
+
 def _mcp_to_openai_tool_schema(tool_name_fc: str, spec) -> dict:
     # MCP inputSchema is already JSON Schema-ish.
     return {
@@ -81,6 +96,13 @@ async def main() -> None:
     p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"), help="DEBUG|INFO|WARNING|ERROR")
     args = p.parse_args()
 
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    log = logging.getLogger("simple_rla.fc_runloop")
+
     # Load workflow configuration
     workflow = load_workflow(args.workflow)
     max_steps = args.max_steps if args.max_steps is not None else workflow.execution.max_steps
@@ -92,12 +114,6 @@ async def main() -> None:
         # effectively unlimited, but keep a very large safety cap
         max_steps = 100000
 
-    logging.basicConfig(
-        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-
-    log = logging.getLogger("simple_rla.fc_runloop")
     log.info("start model=%s jira_key=%s max_steps=%s workflow=%s", args.model, args.jira_key, max_steps, workflow.name)
 
     cfg = load_config(args.config)
@@ -126,8 +142,8 @@ async def main() -> None:
                 model=args.model,
                 messages=messages,
                 tools=openai_tools,
-                tool_choice="auto",
-                temperature=0.2,
+                tool_choice=workflow.llm.tool_choice,
+                temperature=workflow.llm.temperature,
                 timeout_s=workflow.execution.request_timeout_s,
             )
 
@@ -156,8 +172,9 @@ async def main() -> None:
                                 raise ValueError("tool arguments must be an object")
                             log.info("tool_exec name=%s fq=%s args=%s", tc.name, fq, tool_args)
                             tool_out = await agent.call_tool(fq, tool_args)
-                            # Log truncated result for debugging
-                            log.info("tool_result name=%s fq=%s len=%d content=%s", tc.name, fq, len(tool_out), tool_out[:1000])
+                            # Log truncated result for debugging (redacted, DEBUG only)
+                            log.info("tool_result name=%s fq=%s len=%d", tc.name, fq, len(tool_out))
+                            log.debug("tool_result_content name=%s fq=%s content=%s", tc.name, fq, _redact(tool_out[:1000]))
                         except Exception as exc:
                             log.error("tool_error name=%s fq=%s error=%s", tc.name, fq, exc)
                             if workflow.tools.include_traceback:
