@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -74,7 +76,16 @@ async def main() -> None:
     p.add_argument("--model", required=True, help="OpenAI model id")
     p.add_argument("--jira-key", default="", help="Optional Jira key to start from")
     p.add_argument("--max-steps", type=int, default=16)
+    p.add_argument("--log-level", default=os.environ.get("LOG_LEVEL", "INFO"), help="DEBUG|INFO|WARNING|ERROR")
     args = p.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+    log = logging.getLogger("simple_rla.responses_runloop")
+    log.info("start model=%s jira_key=%s max_steps=%s", args.model, args.jira_key, args.max_steps)
 
     cfg = load_config(args.config)
 
@@ -87,6 +98,7 @@ async def main() -> None:
 
     async with RunloopAgent(cfg) as agent:
         mcp_tools = agent.list_tools()
+        log.info("mcp.tools count=%d", len(mcp_tools))
         name_to_fq, _fq_to_name = _build_tool_map(mcp_tools)
         tools = [_mcp_to_responses_tool_schema(name, mcp_tools[fq]) for name, fq in name_to_fq.items()]
 
@@ -106,7 +118,8 @@ async def main() -> None:
 
         prev_id: str | None = None
 
-        for _ in range(args.max_steps):
+        for step in range(1, args.max_steps + 1):
+            log.info("step=%d create_response prev_id=%s", step, prev_id)
             rr = create_response(
                 model=args.model,
                 input_items=input_items,
@@ -116,6 +129,7 @@ async def main() -> None:
                 temperature=0.2,
             )
             prev_id = rr.response_id
+            log.info("response id=%s function_calls=%d", rr.response_id, len(rr.function_calls))
 
             if rr.function_calls:
                 # For subsequent turns, only send tool outputs (Responses keeps context via previous_response_id).
@@ -123,6 +137,7 @@ async def main() -> None:
 
                 for fc in rr.function_calls:
                     fq = name_to_fq.get(fc.name)
+                    log.info("tool_call name=%s fq=%s call_id=%s", fc.name, fq, fc.call_id)
                     if not fq:
                         out = json.dumps({"error": f"unknown tool: {fc.name}"})
                     else:
@@ -149,4 +164,8 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.getLogger("simple_rla.responses_runloop").warning("interrupted")
+        raise SystemExit(130)

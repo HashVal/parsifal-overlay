@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import ssl
 import urllib.error
@@ -34,6 +35,9 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .stdio_jsonrpc_server import StdioMcpServer, Tool
+
+
+logger = logging.getLogger("simple_rla.jira")
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -106,8 +110,11 @@ class JiraClient:
         if body is not None:
             data = json.dumps(body, ensure_ascii=False).encode("utf-8")
 
+        url = self._url(path, query=query)
+        logger.info("jira.request %s %s", method, url)
+
         req = urllib.request.Request(
-            self._url(path, query=query),
+            url,
             data=data,
             method=method,
             headers=self._headers(),
@@ -116,6 +123,7 @@ class JiraClient:
         try:
             with urllib.request.urlopen(req, timeout=self._cfg.timeout_s, context=self._ssl_context()) as resp:
                 raw = resp.read().decode("utf-8", errors="replace")
+                logger.info("jira.response status=%s bytes=%d", getattr(resp, "status", "?"), len(raw))
                 if not raw.strip():
                     return {}
                 return json.loads(raw)
@@ -228,7 +236,13 @@ def _tool_transition(client: JiraClient, args: dict) -> dict:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
     cfg = _load_cfg()
+    logger.info("jira.mcp.start base_url=%s api_prefix=%s auth=%s verify_ssl=%s", cfg.base_url, cfg.api_prefix, cfg.auth, cfg.verify_ssl)
     client = JiraClient(cfg)
 
     server = StdioMcpServer(name="jira")

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+
+
+logger = logging.getLogger("simple_rla.runloop")
 
 from runloop_agent.config import RunloopConfig
 from runloop_agent.mcp_stdio_client import McpStdioClient, McpToolSpec, RunloopArtifacts
@@ -37,6 +41,7 @@ class ToolRouter:
         self._tools: dict[str, McpToolSpec] = {}
 
     async def start(self) -> None:
+        logger.info("runloop.start servers=%s", [s.name for s in self._cfg.servers])
         for s in self._cfg.servers:
             client = McpStdioClient(
                 name=self._cfg.client_name,
@@ -45,12 +50,16 @@ class ToolRouter:
                 env=s.env,
                 protocol_version=self._cfg.protocol_version,
                 cwd=s.cwd,
+                server_label=s.name,
+                request_timeout_s=60.0,
             )
             await client.start()
+            logger.info("runloop.initialize server=%s", s.name)
             await client.initialize(client_version=self._cfg.client_version)
             self._clients[s.name] = client
 
         await self.refresh_tools()
+        logger.info("runloop.tools loaded=%d", len(self._tools))
 
     async def close(self) -> None:
         for c in self._clients.values():

@@ -15,11 +15,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+
+logger = logging.getLogger("simple_rla.mcp")
 
 
 class McpError(RuntimeError):
@@ -78,16 +82,22 @@ class McpStdioClient:
         env: Optional[Dict[str, str]] = None,
         protocol_version: str = "2024-11-05",
         cwd: Optional[str] = None,
+        server_label: str = "mcp",
+        request_timeout_s: float = 60.0,
     ) -> None:
         self._name = name
         self._command = command
         self._args = args
         self._env = {**os.environ, **(env or {})}
+        self._env_override_keys = list((env or {}).keys())
         self._protocol_version = protocol_version
         self._cwd = cwd
+        self._server_label = server_label
+        self._request_timeout_s = request_timeout_s
 
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._reader_task: Optional[asyncio.Task] = None
+        self._stderr_task: Optional[asyncio.Task] = None
 
         self._next_id = 1
         self._pending: dict[int, asyncio.Future] = {}
@@ -96,6 +106,22 @@ class McpStdioClient:
     async def start(self) -> None:
         if self._proc is not None:
             return
+
+        safe_keys = []
+        for k in self._env_override_keys:
+            if any(s in k.upper() for s in ("TOKEN", "KEY", "SECRET", "PASSWORD")):
+                safe_keys.append(f"{k}=<redacted>")
+            else:
+                safe_keys.append(k)
+
+        logger.info(
+            "mcp.start server=%s cmd=%s args=%s cwd=%s env_overrides=%s",
+            self._server_label,
+            self._command,
+            self._args,
+            self._cwd,
+            safe_keys,
+        )
 
         self._proc = await asyncio.create_subprocess_exec(
             self._command,
@@ -107,19 +133,25 @@ class McpStdioClient:
             cwd=self._cwd,
         )
         assert self._proc.stdout is not None
-        self._reader_task = asyncio.create_task(self._read_loop())
+        self._reader_task = asyncio.create_task(self._read_loop(), name=f"mcp-read:{self._server_label}")
+        self._reader_task.add_done_callback(self._on_bg_task_done)
 
         # Drain stderr in the background so server logging doesn't deadlock.
         assert self._proc.stderr is not None
-        asyncio.create_task(self._drain_stderr())
+        self._stderr_task = asyncio.create_task(self._drain_stderr(), name=f"mcp-stderr:{self._server_label}")
+        self._stderr_task.add_done_callback(self._on_bg_task_done)
 
     async def close(self) -> None:
         if self._closed:
             return
         self._closed = True
 
+        logger.info("mcp.close server=%s", self._server_label)
+
         if self._reader_task is not None:
             self._reader_task.cancel()
+        if self._stderr_task is not None:
+            self._stderr_task.cancel()
 
         if self._proc is not None:
             try:
@@ -172,9 +204,22 @@ class McpStdioClient:
         return specs
 
     async def call_tool(self, name: str, arguments: dict) -> McpCallResult:
+        logger.info("mcp.tools/call server=%s tool=%s", self._server_label, name)
         result = await self._request("tools/call", {"name": name, "arguments": arguments})
         text = _extract_text_content(result)
         return McpCallResult(raw=result, text=text)
+
+    def _on_bg_task_done(self, task: asyncio.Task) -> None:
+        # Consume exceptions to avoid "Task exception was never retrieved".
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            return
+
+        if exc is not None:
+            logger.error("mcp.bg_task_error server=%s task=%s err=%s", self._server_label, task.get_name(), exc)
 
     async def _drain_stderr(self) -> None:
         assert self._proc is not None
@@ -184,7 +229,9 @@ class McpStdioClient:
                 line = await self._proc.stderr.readline()
                 if not line:
                     return
-                # Intentionally ignore; callers can direct server logs elsewhere.
+                s = line.decode("utf-8", errors="replace").rstrip("\n")
+                if s:
+                    logger.info("mcp.stderr server=%s %s", self._server_label, s)
         except asyncio.CancelledError:
             return
 
@@ -196,6 +243,8 @@ class McpStdioClient:
             while True:
                 line = await self._proc.stdout.readline()
                 if not line:
+                    if self._closed:
+                        return
                     raise McpError("server stdout closed")
 
                 try:
@@ -239,8 +288,15 @@ class McpStdioClient:
         fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[req_id] = fut
 
+        logger.debug("mcp.request server=%s id=%s method=%s", self._server_label, req_id, method)
         await self._write({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
-        res = await fut
+
+        try:
+            res = await asyncio.wait_for(fut, timeout=self._request_timeout_s)
+        except asyncio.TimeoutError as exc:
+            self._pending.pop(req_id, None)
+            raise McpError(f"timeout waiting for {method} (server={self._server_label})") from exc
+
         if not isinstance(res, dict):
             raise McpProtocolError(f"{method} returned non-object result: {res!r}")
         return res
