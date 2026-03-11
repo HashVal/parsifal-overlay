@@ -19,7 +19,7 @@ if __package__ in (None, ""):
 from runloop_agent.config import load_config
 from runloop_agent.openai_fc import chat_completions
 from runloop_agent.runloop import RunloopAgent
-from runloop_agent.workflow_config import load_workflow, format_message
+from runloop_agent.workflow_config import load_workflow, format_message, exit_enabled
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -84,6 +84,13 @@ async def main() -> None:
     # Load workflow configuration
     workflow = load_workflow(args.workflow)
     max_steps = args.max_steps if args.max_steps is not None else workflow.execution.max_steps
+
+    # Apply exit condition flags
+    no_tool_exit = exit_enabled(workflow, "no_tool_calls", default=True)
+    max_steps_exit = exit_enabled(workflow, "max_steps_reached", default=True)
+    if not max_steps_exit and args.max_steps is None:
+        # effectively unlimited, but keep a very large safety cap
+        max_steps = 100000
 
     logging.basicConfig(
         level=getattr(logging, str(args.log_level).upper(), logging.INFO),
@@ -173,6 +180,8 @@ async def main() -> None:
                 continue
 
             # Final
+            if not no_tool_exit:
+                log.warning("exit_condition no_tool_calls disabled; exiting anyway")
             log.info("step=%d final_response content_len=%d", step, len(mm.content or ""))
             if mm.content:
                 print(mm.content)
@@ -185,6 +194,8 @@ async def main() -> None:
                         print(json.dumps(raw, ensure_ascii=False))
             return
 
+    if not max_steps_exit:
+        log.warning("exit_condition max_steps_reached disabled; loop ended at cap=%s", max_steps)
     raise SystemExit("max steps exceeded without final answer")
 
 

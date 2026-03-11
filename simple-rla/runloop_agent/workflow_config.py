@@ -137,3 +137,11 @@ def format_message(template: str, context: dict[str, Any]) -> str:
         logger.warning("workflow.format missing_key=%s template=%r", e, template[:100])
         # Return template with available substitutions, missing keys stay as {key}
         return template
+
+
+def exit_enabled(cfg: WorkflowConfig, name: str, default: bool = True) -> bool:
+    """Return whether an exit condition is enabled (by name)."""
+    for ec in cfg.exit_conditions:
+        if ec.name == name:
+            return bool(ec.enabled)
+    return default
