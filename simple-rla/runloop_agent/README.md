@@ -12,6 +12,16 @@ Goals:
 
 This code intentionally avoids third-party deps (stdlib only) so it's easy to embed.
 
+Current Jira MCP tools:
+
+- `jira_search`
+- `jira_get`
+- `jira_comment`
+- `jira_transitions`
+- `jira_transition`
+- `jira_list_attachments`
+- `jira_fetch_attachment`
+
 ## Workflow Configuration
 
 The agent behavior is defined in `workflow.yaml` (configurable via `--workflow`):
@@ -159,3 +169,27 @@ It uses:
 - `tools/call`
 
 Tool results are expected to be MCP-style content blocks; this client extracts `text` blocks and returns `text`.
+
+## Jira attachments
+
+The Jira MCP server now exposes two attachment-focused tools:
+
+- `jira_list_attachments(key)`
+  - returns a lightweight list of attachments on an issue
+  - includes fields such as `id`, `filename`, `mime_type`, `size`, `created`, `author`
+
+- `jira_fetch_attachment(key, attachment_id, out_dir?)`
+  - downloads one attachment using the same Jira auth config
+  - saves it to a local file
+  - returns a compact result with:
+    - `saved_path`
+    - `size`
+    - `mime_type`
+    - `binary`
+    - `preview`
+
+Design note:
+
+- Attachment contents are **not** returned in full to the model.
+- This avoids overloading MCP stdio messages and keeps large logs out of the LLM context.
+- If `out_dir` is omitted, files are stored under a default local artifacts path for the issue.

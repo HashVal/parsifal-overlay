@@ -27,18 +27,23 @@ import base64
 import json
 import logging
 import os
+import re
 import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 
 _DEFAULT_SEARCH_FIELDS = "summary,status,updated,assignee,labels,components"
-_DEFAULT_GET_FIELDS = "summary,status,updated,assignee,labels,components,description,issuetype,priority,reporter"
+_DEFAULT_GET_FIELDS = "summary,status,updated,assignee,labels,components,description,issuetype,priority,reporter,attachment"
 _MAX_TEXT_PREVIEW = 1200
 _MAX_ITEMS = 10
+_ATTACHMENT_PREVIEW_BYTES = 8192
+_ATTACHMENT_PREVIEW_LINES = 50
+_SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 from .stdio_jsonrpc_server import StdioMcpServer, Tool
 
@@ -184,6 +189,25 @@ class JiraClient:
             logger.error("jira.url_error error=%s", exc)
             raise RuntimeError(f"Jira URL error: {exc}")
 
+    def download_bytes(self, url: str) -> tuple[bytes, str]:
+        logger.info("jira.download %s", url)
+        req = urllib.request.Request(
+            url,
+            headers=self._headers(),
+            method="GET",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self._cfg.timeout_s, context=self._ssl_context()) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                data = resp.read()
+                logger.info("jira.download.response status=%s bytes=%d content_type=%s", getattr(resp, "status", "?"), len(data), content_type)
+                return data, content_type
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            raise RuntimeError(f"Jira attachment HTTP {exc.code}: {raw[:500]}")
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Jira attachment URL error: {exc}")
+
 
 def _load_cfg() -> JiraConfig:
     base_url = os.environ.get("JIRA_BASE_URL", "").strip()
@@ -221,6 +245,46 @@ def _load_cfg() -> JiraConfig:
         verify_ssl=verify_ssl,
         timeout_s=timeout_s,
     )
+
+
+def _safe_filename(name: str) -> str:
+    safe = _SAFE_NAME.sub("_", (name or "attachment").strip())
+    return safe or "attachment"
+
+
+def _default_attachment_dir(key: str) -> Path:
+    return Path.cwd() / "artifacts" / "jira_attachments" / _safe_filename(key)
+
+
+def _decode_preview(data: bytes) -> tuple[str, bool]:
+    sample = data[:_ATTACHMENT_PREVIEW_BYTES]
+    if b"\x00" in sample:
+        return "<binary preview omitted>", True
+    text = sample.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    preview = "\n".join(lines[:_ATTACHMENT_PREVIEW_LINES])
+    if len(sample) < len(data) or len(lines) > _ATTACHMENT_PREVIEW_LINES:
+        preview += f"\n... [truncated preview of {len(data)} bytes]"
+    return preview.strip(), False
+
+
+def _extract_attachments(issue: dict) -> list[dict]:
+    fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+    attachments = fields.get("attachment") if isinstance(fields.get("attachment"), list) else []
+    out: list[dict] = []
+    for a in attachments[:_MAX_ITEMS]:
+        if not isinstance(a, dict):
+            continue
+        out.append({
+            "id": str(a.get("id") or ""),
+            "filename": a.get("filename"),
+            "mime_type": a.get("mimeType") or a.get("mime_type"),
+            "size": a.get("size"),
+            "created": a.get("created"),
+            "author": _user_name(a.get("author")),
+            "content_url": a.get("content"),
+        })
+    return out
 
 
 def _clip_text(value: Any, limit: int = _MAX_TEXT_PREVIEW) -> str:
@@ -273,6 +337,10 @@ def _normalize_issue(issue: dict, *, include_description: bool = True) -> dict:
 
     if include_description:
         out["description_preview"] = _clip_text(fields.get("description"))
+
+    attachments = _extract_attachments(issue)
+    if attachments:
+        out["attachments"] = attachments
 
     if comments:
         recent = comments[-min(len(comments), 3):]
@@ -355,6 +423,76 @@ def _tool_get(client: JiraClient, args: dict) -> dict:
     return out
 
 
+def _tool_list_attachments(client: JiraClient, args: dict) -> dict:
+    key = str(args.get("key") or "").strip()
+    if not key:
+        raise ValueError("key is required")
+
+    issue = client.request_json(
+        "GET",
+        f"/issue/{urllib.parse.quote(key)}",
+        query={"fields": "attachment"},
+    )
+    if not isinstance(issue, dict):
+        return {"key": key, "attachments": [], "error": "unexpected Jira issue payload"}
+
+    attachments = _extract_attachments(issue)
+    logger.info("jira.attachments.list key=%s count=%d", key, len(attachments))
+    return {
+        "key": key,
+        "count": len(attachments),
+        "attachments": attachments,
+    }
+
+
+def _tool_fetch_attachment(client: JiraClient, args: dict) -> dict:
+    key = str(args.get("key") or "").strip()
+    attachment_id = str(args.get("attachment_id") or "").strip()
+    out_dir_raw = str(args.get("out_dir") or "").strip()
+    if not key:
+        raise ValueError("key is required")
+    if not attachment_id:
+        raise ValueError("attachment_id is required")
+
+    issue = client.request_json(
+        "GET",
+        f"/issue/{urllib.parse.quote(key)}",
+        query={"fields": "attachment"},
+    )
+    if not isinstance(issue, dict):
+        raise RuntimeError("unexpected Jira issue payload while listing attachments")
+
+    attachments = _extract_attachments(issue)
+    match = next((a for a in attachments if a.get("id") == attachment_id), None)
+    if not match:
+        raise RuntimeError(f"attachment {attachment_id} not found on issue {key}")
+
+    content_url = str(match.get("content_url") or "").strip()
+    if not content_url:
+        raise RuntimeError(f"attachment {attachment_id} has no content URL")
+
+    data, content_type = client.download_bytes(content_url)
+
+    out_dir = Path(out_dir_raw).expanduser().resolve() if out_dir_raw else _default_attachment_dir(key).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    filename = _safe_filename(str(match.get("filename") or attachment_id))
+    saved_path = out_dir / filename
+    saved_path.write_bytes(data)
+
+    preview, binary = _decode_preview(data)
+    logger.info("jira.attachments.fetch key=%s attachment_id=%s bytes=%d saved=%s", key, attachment_id, len(data), saved_path)
+    return {
+        "key": key,
+        "attachment_id": attachment_id,
+        "filename": match.get("filename"),
+        "saved_path": str(saved_path),
+        "size": len(data),
+        "mime_type": content_type or match.get("mime_type"),
+        "binary": binary,
+        "preview": preview,
+    }
+
+
 def _tool_comment(client: JiraClient, args: dict) -> dict:
     key = str(args.get("key") or "").strip()
     body = args.get("body")
@@ -429,6 +567,38 @@ def main() -> None:
                 "required": ["key"],
             },
             handler=lambda a: _tool_get(client, a),
+        )
+    )
+
+    server.add_tool(
+        Tool(
+            name="jira_list_attachments",
+            description="List attachments on a Jira issue",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                },
+                "required": ["key"],
+            },
+            handler=lambda a: _tool_list_attachments(client, a),
+        )
+    )
+
+    server.add_tool(
+        Tool(
+            name="jira_fetch_attachment",
+            description="Download a Jira attachment to a local file and return a short preview",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string"},
+                    "attachment_id": {"type": "string"},
+                    "out_dir": {"type": "string"},
+                },
+                "required": ["key", "attachment_id"],
+            },
+            handler=lambda a: _tool_fetch_attachment(client, a),
         )
     )
 

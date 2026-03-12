@@ -40,3 +40,7 @@ Recent Jira auth updates:
 - `jira_server.py` now prefers `JIRA_PASSWORD` for `basic` auth.
 - `JIRA_TOKEN` is still accepted as a fallback secret in `basic` mode for compatibility.
 - Jira auth failures now produce clearer diagnostics for `401`, HTML login/SSO pages, and non-JSON responses.
+- Jira attachment support is now exposed as dedicated MCP tools:
+  - `jira_list_attachments`
+  - `jira_fetch_attachment`
+- Attachments are downloaded to local files and returned as compact metadata + preview, rather than sending full file contents back through the model context.
