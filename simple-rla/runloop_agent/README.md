@@ -255,8 +255,8 @@ Behavior notes:
 - `FILE_TOOLS_ROOT` is provided in `example.mcp.toml` as a fallback for manual/ad-hoc runs.
 - Outputs are clipped to avoid flooding the model context.
 - The file/log MCP server now emits request/response summary logs for observability (tool name, path, counts, truncation, compare summary).
-- `log_extract_signatures` is rule-based in v0 and focuses on kernel panic / warning / subsystem hints.
-- `log_compare` is RCA-oriented: it compares normalized common prefix + extracted signatures, not a raw full diff.
+- `log_extract_signatures` is rule-based and now returns layered output for kernel logs: `essential`, `fatal`, `errors`, `subsystem_hints`, and `summary`.
+- `log_compare` is RCA-oriented: it compares normalized common prefix plus layered fatal/error signatures, not a raw full diff.
 
 ## Jira attachments
 

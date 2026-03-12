@@ -25,7 +25,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from .stdio_jsonrpc_server import StdioMcpServer, Tool
 
@@ -58,11 +58,14 @@ _FATAL_RULES = [
     ("kernel-bug-at", r"kernel BUG at"),
 ]
 
-_WARNING_RULES = [
-    ("warning", r"\bWARNING:"),
-    ("tainted", r"\bTainted:"),
-    ("failed", r"\bfailed\b"),
+_ERROR_RULES = [
+    ("error", r"\berror\b"),
+    ("failed", r"\bfailed\b|\bfail\b"),
     ("timeout", r"\btimeout\b"),
+    ("warning", r"\bWARNING:\b|\bWARN\b"),
+    ("reset", r"\breset\b"),
+    ("hang", r"\bhang\b|\bGPU HANG\b"),
+    ("tainted", r"\bTainted:\b"),
 ]
 
 _SUBSYSTEM_RULES = [
@@ -75,6 +78,20 @@ _SUBSYSTEM_RULES = [
     ("huc", r"\bHuC\b|\bhuc\b"),
     ("gsc", r"\bGSC\b|\bgsc\b"),
     ("pcie", r"\bPCIe\b|\bpcie\b"),
+]
+
+_ESSENTIAL_RULES = {
+    "kernel_version": re.compile(r"^\[.*?\]\s+Linux version\s+.+", re.IGNORECASE),
+    "cmdline": re.compile(r"^\[.*?\]\s+Command line:\s+.+", re.IGNORECASE),
+    "dmi": re.compile(r"^\[.*?\]\s+DMI:\s+.+", re.IGNORECASE),
+    "hostname": re.compile(r"\bhostname\b\s*[:=]\s*(.+)", re.IGNORECASE),
+    "tainted": re.compile(r"\bTainted:\b", re.IGNORECASE),
+}
+
+_DRIVER_HINT_RULES = [
+    ("xe.force_probe", re.compile(r"\bxe\.force_probe\s*=\s*([^\s]+)", re.IGNORECASE)),
+    ("xe.max_vfs", re.compile(r"\bxe\.max_vfs\s*=\s*([^\s]+)", re.IGNORECASE)),
+    ("modprobe.blacklist", re.compile(r"\bmodprobe\.blacklist\s*=\s*([^\s]+)", re.IGNORECASE)),
 ]
 
 
@@ -291,60 +308,186 @@ def _sig_id(path: Path, kind: str, line_no: int, text: str) -> str:
     return f"sig-{h}"
 
 
-def _extract_signatures_from_lines(path: Path, all_lines: list[str], *, context_before: int, context_after: int, max_signatures_per_kind: int, max_total_signatures: int) -> dict:
-    compiled_fatal = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _FATAL_RULES]
-    compiled_warn = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _WARNING_RULES]
-    compiled_subsys = [(tag, re.compile(pat, re.IGNORECASE)) for tag, pat in _SUBSYSTEM_RULES]
-    signatures: list[dict[str, Any]] = []
-    per_kind: dict[str, int] = {}
-    subsystem_seen: set[str] = set()
-    taint_seen = False
+def _normalize_compare_line(line: str) -> str:
+    line = re.sub(r"0x[0-9a-fA-F]+", "0xADDR", line)
+    line = re.sub(r"\b\d+\b", "N", line)
+    return line.strip()
 
-    def add_sig(kind: str, line_no: int, text: str, tags: list[str]) -> None:
-        if len(signatures) >= max_total_signatures:
-            return
-        if per_kind.get(kind, 0) >= max_signatures_per_kind:
-            return
-        context = all_lines[max(0, line_no - 1 - context_before): min(len(all_lines), line_no + context_after)]
-        signatures.append({
-            "id": _sig_id(path, kind, line_no, text),
-            "kind": kind,
-            "line": line_no,
-            "text": text,
-            "tags": tags,
-            "context": context,
-        })
-        per_kind[kind] = per_kind.get(kind, 0) + 1
 
-    for idx, line in enumerate(all_lines, start=1):
-        if "Tainted:" in line:
-            taint_seen = True
-        for kind, rx in compiled_fatal:
-            if rx.search(line):
-                add_sig(kind, idx, line, ["fatal", kind])
-                break
-        for kind, rx in compiled_warn:
-            if rx.search(line):
-                add_sig(kind, idx, line, ["warning", kind])
-                break
-        for tag, rx in compiled_subsys:
-            if rx.search(line):
-                subsystem_seen.add(tag)
-                if per_kind.get("subsystem-hint", 0) < max_signatures_per_kind and len(signatures) < max_total_signatures:
-                    add_sig("subsystem-hint", idx, line, [tag])
-                break
-
-    fatal_count = sum(1 for s in signatures if "fatal" in s.get("tags", []))
-    warning_count = sum(1 for s in signatures if "warning" in s.get("tags", []))
-    return {
-        "summary": {
-            "fatal_count": fatal_count,
-            "warning_count": warning_count,
-            "subsystem_hints": sorted(subsystem_seen),
-            "taint_seen": taint_seen,
-        },
-        "signatures": signatures,
+def _extract_essential(all_lines: list[str]) -> dict[str, Any]:
+    essential: dict[str, Any] = {
+        "kernel_version": None,
+        "cmdline": None,
+        "dmi": None,
+        "hostname": None,
+        "taint_seen": False,
+        "driver_hints": [],
     }
+    for line in all_lines[:400]:
+        if essential["kernel_version"] is None and _ESSENTIAL_RULES["kernel_version"].search(line):
+            essential["kernel_version"] = line
+        if essential["cmdline"] is None and _ESSENTIAL_RULES["cmdline"].search(line):
+            essential["cmdline"] = line
+        if essential["dmi"] is None and _ESSENTIAL_RULES["dmi"].search(line):
+            essential["dmi"] = line
+        if _ESSENTIAL_RULES["tainted"].search(line):
+            essential["taint_seen"] = True
+        if essential["hostname"] is None:
+            m = _ESSENTIAL_RULES["hostname"].search(line)
+            if m:
+                essential["hostname"] = m.group(1).strip()
+    cmdline = essential.get("cmdline") or ""
+    hints: list[str] = []
+    for name, rx in _DRIVER_HINT_RULES:
+        m = rx.search(cmdline)
+        if m:
+            hints.append(f"{name}={m.group(1)}")
+    essential["driver_hints"] = hints
+    return essential
+
+
+def _make_context(all_lines: list[str], line_no: int, before: int, after: int) -> list[str]:
+    return all_lines[max(0, line_no - 1 - before): min(len(all_lines), line_no + after)]
+
+
+def _scan_matches(all_lines: list[str], compiled_rules: list[tuple[str, re.Pattern[str]]], *, reverse: bool, before: int, after: int, max_items: int, cluster_gap: int = 0) -> list[dict[str, Any]]:
+    order = range(len(all_lines) - 1, -1, -1) if reverse else range(len(all_lines))
+    items: list[dict[str, Any]] = []
+    seen_lines: set[int] = set()
+    cluster_lines: list[int] = []
+
+    def cluster_near(line_no: int) -> bool:
+        return any(abs(line_no - prev) <= cluster_gap for prev in cluster_lines)
+
+    for idx in order:
+        line_no = idx + 1
+        line = all_lines[idx]
+        for kind, rx in compiled_rules:
+            if not rx.search(line):
+                continue
+            if line_no in seen_lines:
+                break
+            if cluster_gap > 0 and cluster_near(line_no):
+                break
+            items.append({
+                "id": _sig_id(Path("."), kind, line_no, line),
+                "kind": kind,
+                "line": line_no,
+                "text": line,
+                "context": _make_context(all_lines, line_no, before, after),
+            })
+            seen_lines.add(line_no)
+            cluster_lines.append(line_no)
+            break
+        if len(items) >= max_items:
+            break
+    items.sort(key=lambda x: x["line"])
+    return items
+
+
+def _scan_subsystem_hints(all_lines: list[str], *, max_items: int) -> tuple[list[str], list[dict[str, Any]]]:
+    tags_seen: list[str] = []
+    evidence: list[dict[str, Any]] = []
+    compiled = [(tag, re.compile(pat, re.IGNORECASE)) for tag, pat in _SUBSYSTEM_RULES]
+    for idx, line in enumerate(all_lines, start=1):
+        for tag, rx in compiled:
+            if not rx.search(line):
+                continue
+            if tag not in tags_seen:
+                tags_seen.append(tag)
+            if len(evidence) >= max_items:
+                break
+            if tag == "acpi" and ("ACPI NVS" in line or "ACPI data" in line):
+                break
+            if idx <= 5 and (tag == "xe" or tag == "i915"):
+                break
+            evidence.append({
+                "tag": tag,
+                "line": idx,
+                "text": line,
+            })
+            break
+        if len(evidence) >= max_items:
+            break
+    return tags_seen, evidence
+
+
+def _fit_section(obj: Any, max_chars: int) -> Any:
+    text = str(obj)
+    if len(text) <= max_chars:
+        return obj
+    if isinstance(obj, list):
+        out = []
+        for item in obj:
+            candidate = out + [item]
+            if len(str(candidate)) > max_chars:
+                break
+            out = candidate
+        return out
+    return obj
+
+
+def _extract_kernel_log_layers(path: Path, all_lines: list[str], *, context_before: int, context_after: int, max_signatures_per_kind: int, max_total_signatures: int, max_chars: int) -> dict[str, Any]:
+    essential = _extract_essential(all_lines)
+    fatal_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _FATAL_RULES]
+    error_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _ERROR_RULES]
+
+    fatal_items = _scan_matches(
+        all_lines,
+        fatal_rules,
+        reverse=True,
+        before=max(context_before, 6),
+        after=max(context_after, 8),
+        max_items=min(max_total_signatures, max_signatures_per_kind * 2),
+        cluster_gap=20,
+    )
+    error_items = _scan_matches(
+        all_lines,
+        error_rules,
+        reverse=True,
+        before=min(max(context_before, 3), 6),
+        after=min(max(context_after, 4), 6),
+        max_items=min(max_total_signatures, max_signatures_per_kind * 2),
+        cluster_gap=8,
+    )
+    subsystem_tags, subsystem_evidence = _scan_subsystem_hints(all_lines, max_items=max_signatures_per_kind)
+
+    has_call_trace = any(item["kind"] == "call-trace" for item in fatal_items)
+    dominant_failure_mode = fatal_items[0]["kind"] if fatal_items else (error_items[0]["kind"] if error_items else None)
+
+    total_budget = max_chars
+    essential_budget = max(400, int(total_budget * 0.18))
+    fatal_budget = max(1200, int(total_budget * 0.42))
+    error_budget = max(900, int(total_budget * 0.24))
+    subsystem_budget = max(300, int(total_budget * 0.10))
+
+    out = {
+        "path": str(path),
+        "profile": "kernel",
+        "essential": _fit_section(essential, essential_budget),
+        "fatal": {
+            "count": len(fatal_items),
+            "items": _fit_section(fatal_items, fatal_budget),
+        },
+        "errors": {
+            "count": len(error_items),
+            "items": _fit_section(error_items, error_budget),
+        },
+        "subsystem_hints": {
+            "tags": subsystem_tags,
+            "evidence": _fit_section(subsystem_evidence, subsystem_budget),
+        },
+        "summary": {
+            "has_fatal": bool(fatal_items),
+            "has_call_trace": has_call_trace,
+            "has_warning_or_error": bool(error_items),
+            "primary_subsystems": subsystem_tags[:4],
+            "dominant_failure_mode": dominant_failure_mode,
+            "truncated": False,
+        },
+    }
+    out["summary"]["truncated"] = len(str(out)) > max_chars
+    return out
 
 
 def _log_extract_signatures(args: dict) -> dict:
@@ -361,30 +504,29 @@ def _log_extract_signatures(args: dict) -> dict:
     if before < 0 or after < 0 or max_per_kind <= 0 or max_total <= 0 or max_chars <= 0:
         raise ValueError("invalid signature extraction limits")
     all_lines = _read_lines(path)
-    result = _extract_signatures_from_lines(path, all_lines, context_before=before, context_after=after, max_signatures_per_kind=max_per_kind, max_total_signatures=max_total)
-    trimmed: list[dict[str, Any]] = []
-    used = 0
-    for sig in result["signatures"]:
-        rough = len(sig.get("text", "")) + sum(len(x) for x in sig.get("context", []))
-        if trimmed and used + rough > max_chars:
-            break
-        trimmed.append(sig)
-        used += rough
-    out = {
-        "path": str(path),
-        "profile": profile,
-        "summary": result["summary"],
-        "truncated": len(trimmed) < len(result["signatures"]),
-        "signatures": trimmed,
-    }
-    logger.info("file.response tool=log_extract_signatures path=%s profile=%s fatal=%s warning=%s subsystems=%s returned=%s truncated=%s", path, profile, out["summary"].get("fatal_count"), out["summary"].get("warning_count"), ",".join(out["summary"].get("subsystem_hints", [])[:6]), len(out["signatures"]), out["truncated"])
+    out = _extract_kernel_log_layers(
+        path,
+        all_lines,
+        context_before=before,
+        context_after=after,
+        max_signatures_per_kind=max_per_kind,
+        max_total_signatures=max_total,
+        max_chars=max_chars,
+    )
+    logger.info(
+        "file.response tool=log_extract_signatures path=%s profile=%s fatal=%s errors=%s subsystems=%s truncated=%s",
+        path,
+        profile,
+        out["fatal"].get("count"),
+        out["errors"].get("count"),
+        ",".join(out["subsystem_hints"].get("tags", [])[:6]),
+        out["summary"].get("truncated"),
+    )
     return out
 
 
-def _normalize_compare_line(line: str) -> str:
-    line = re.sub(r"0x[0-9a-fA-F]+", "0xADDR", line)
-    line = re.sub(r"\b\d+\b", "N", line)
-    return line.strip()
+def _signature_key(item: dict[str, Any]) -> tuple[str, str]:
+    return (str(item.get("kind") or ""), str(item.get("text") or ""))
 
 
 def _log_compare(args: dict) -> dict:
@@ -406,31 +548,32 @@ def _log_compare(args: dict) -> dict:
         if _normalize_compare_line(l) != _normalize_compare_line(r):
             break
         common_prefix += 1
-    left_extract = _extract_signatures_from_lines(left_path, left_lines, context_before=2, context_after=4, max_signatures_per_kind=max_signatures, max_total_signatures=max_signatures)
-    right_extract = _extract_signatures_from_lines(right_path, right_lines, context_before=2, context_after=4, max_signatures_per_kind=max_signatures, max_total_signatures=max_signatures)
-    left_key = {(s["kind"], s["text"]) for s in left_extract["signatures"]}
-    right_key = {(s["kind"], s["text"]) for s in right_extract["signatures"]}
-    left_only = [s for s in left_extract["signatures"] if (s["kind"], s["text"]) not in right_key][:max_signatures]
-    right_only = [s for s in right_extract["signatures"] if (s["kind"], s["text"]) not in left_key][:max_signatures]
+
+    left_extract = _extract_kernel_log_layers(left_path, left_lines, context_before=2, context_after=4, max_signatures_per_kind=max_signatures, max_total_signatures=max_signatures, max_chars=max_chars)
+    right_extract = _extract_kernel_log_layers(right_path, right_lines, context_before=2, context_after=4, max_signatures_per_kind=max_signatures, max_total_signatures=max_signatures, max_chars=max_chars)
+
+    left_primary = list(left_extract.get("fatal", {}).get("items", [])) + list(left_extract.get("errors", {}).get("items", []))
+    right_primary = list(right_extract.get("fatal", {}).get("items", [])) + list(right_extract.get("errors", {}).get("items", []))
+    left_key = {_signature_key(s) for s in left_primary}
+    right_key = {_signature_key(s) for s in right_primary}
+    left_only = [s for s in left_primary if _signature_key(s) not in right_key][:max_signatures]
+    right_only = [s for s in right_primary if _signature_key(s) not in left_key][:max_signatures]
     shared = []
     seen_shared: set[tuple[str, str]] = set()
-    for s in left_extract["signatures"]:
-        key = (s["kind"], s["text"])
+    for s in left_primary:
+        key = _signature_key(s)
         if key in right_key and key not in seen_shared:
-            item = {"kind": s["kind"]}
-            if s["kind"] == "subsystem-hint" and s.get("tags"):
-                item["tag"] = s["tags"][0]
-            else:
-                item["text"] = s["text"]
-            shared.append(item)
+            shared.append({"kind": s.get("kind"), "text": s.get("text")})
             seen_shared.add(key)
+
     left_excerpt = left_lines[max(0, common_prefix - context_lines): min(len(left_lines), common_prefix + context_lines)]
     right_excerpt = right_lines[max(0, common_prefix - context_lines): min(len(right_lines), common_prefix + context_lines)]
     summary = "logs are identical after normalization through compared prefix"
     if left_only or right_only:
-        left_sub = ", ".join(left_extract["summary"].get("subsystem_hints", [])[:3]) or "unknown"
-        right_sub = ", ".join(right_extract["summary"].get("subsystem_hints", [])[:3]) or "unknown"
-        summary = f"logs diverge after line {common_prefix}; left hints={left_sub}; right hints={right_sub}"
+        left_sub = ", ".join(left_extract.get("summary", {}).get("primary_subsystems", [])[:3]) or "unknown"
+        right_sub = ", ".join(right_extract.get("summary", {}).get("primary_subsystems", [])[:3]) or "unknown"
+        summary = f"logs diverge after line {common_prefix}; left subsystems={left_sub}; right subsystems={right_sub}"
+
     result = {
         "left_path": str(left_path),
         "right_path": str(right_path),
@@ -442,8 +585,8 @@ def _log_compare(args: dict) -> dict:
             "left_excerpt": _clip_list(left_excerpt, max_chars // 4),
             "right_excerpt": _clip_list(right_excerpt, max_chars // 4),
         },
-        "left_only_signatures": [{"kind": s["kind"], "line": s["line"], "text": s["text"]} for s in left_only],
-        "right_only_signatures": [{"kind": s["kind"], "line": s["line"], "text": s["text"]} for s in right_only],
+        "left_only_signatures": [{"kind": s.get("kind"), "line": s.get("line"), "text": s.get("text")} for s in left_only],
+        "right_only_signatures": [{"kind": s.get("kind"), "line": s.get("line"), "text": s.get("text")} for s in right_only],
         "shared_signatures": shared[:max_signatures],
         "summary": summary,
     }
@@ -452,6 +595,11 @@ def _log_compare(args: dict) -> dict:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
     server = StdioMcpServer(name="file-tools", version="0.1")
     server.add_tool(Tool(
         name="file_head",
@@ -516,7 +664,7 @@ def main() -> None:
     ))
     server.add_tool(Tool(
         name="log_extract_signatures",
-        description="Extract kernel-log panic/warning/subsystem signatures from a local text log file.",
+        description="Extract essential kernel log metadata plus layered fatal/error/subsystem signals from a local text log file.",
         input_schema={
             "type": "object",
             "properties": {
@@ -534,7 +682,7 @@ def main() -> None:
     ))
     server.add_tool(Tool(
         name="log_compare",
-        description="Compare two kernel logs by normalized common prefix and extracted signatures.",
+        description="Compare two kernel logs by normalized common prefix and layered extracted fatal/error signatures.",
         input_schema={
             "type": "object",
             "properties": {
