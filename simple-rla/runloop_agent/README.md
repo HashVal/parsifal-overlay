@@ -266,9 +266,9 @@ The Jira MCP server now exposes two attachment-focused tools:
   - returns a lightweight list of attachments on an issue
   - includes fields such as `id`, `filename`, `mime_type`, `size`, `created`, `author`
 
-- `jira_fetch_attachment(key, attachment_id, out_dir?)`
+- `jira_fetch_attachment(key, attachment_id)`
   - downloads one attachment using the same Jira auth config
-  - saves it to a local file
+  - saves it into the current run workspace attachments directory
   - returns a compact result with:
     - `saved_path`
     - `size`
@@ -280,4 +280,4 @@ Design note:
 
 - Attachment contents are **not** returned in full to the model.
 - This avoids overloading MCP stdio messages and keeps large logs out of the LLM context.
-- If `out_dir` is omitted, files are stored under a default local artifacts path for the issue.
+- The attachment save path is runtime-controlled and defaults to the current run workspace attachments directory.

@@ -43,7 +43,7 @@ Recent Jira auth updates:
 - Jira attachment support is now exposed as dedicated MCP tools:
   - `jira_list_attachments`
   - `jira_fetch_attachment`
-- Attachments are downloaded to local files and returned as compact metadata + preview, rather than sending full file contents back through the model context.
+- Attachments are downloaded into the current run workspace attachments directory and returned as compact metadata + preview, rather than sending full file contents back through the model context.
 - Each run now creates its own workspace/output directory under `artifacts_root`, and `--dump` writes iteration files into that run workspace instead of a standalone `cwd/dumps/...` tree.
 - A new local file/log MCP server is available for run-workspace artifacts, exposing:
   - `file_head`

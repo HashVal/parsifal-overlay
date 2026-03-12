@@ -454,7 +454,6 @@ def _tool_list_attachments(client: JiraClient, args: dict) -> dict:
 def _tool_fetch_attachment(client: JiraClient, args: dict) -> dict:
     key = str(args.get("key") or "").strip()
     attachment_id = str(args.get("attachment_id") or "").strip()
-    out_dir_raw = str(args.get("out_dir") or "").strip()
     if not key:
         raise ValueError("key is required")
     if not attachment_id:
@@ -479,7 +478,7 @@ def _tool_fetch_attachment(client: JiraClient, args: dict) -> dict:
 
     data, content_type = client.download_bytes(content_url)
 
-    out_dir = Path(out_dir_raw).expanduser().resolve() if out_dir_raw else _default_attachment_dir(key).resolve()
+    out_dir = _default_attachment_dir(key).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     filename = _safe_filename(str(match.get("filename") or attachment_id))
     saved_path = out_dir / filename
@@ -594,13 +593,12 @@ def main() -> None:
     server.add_tool(
         Tool(
             name="jira_fetch_attachment",
-            description="Download a Jira attachment to a local file and return a short preview",
+            description="Download a Jira attachment into the current run workspace attachments directory and return a short preview",
             input_schema={
                 "type": "object",
                 "properties": {
                     "key": {"type": "string"},
                     "attachment_id": {"type": "string"},
-                    "out_dir": {"type": "string"},
                 },
                 "required": ["key", "attachment_id"],
             },
