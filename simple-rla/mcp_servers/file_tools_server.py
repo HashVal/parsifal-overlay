@@ -385,6 +385,88 @@ def _scan_matches(all_lines: list[str], compiled_rules: list[tuple[str, re.Patte
     return items
 
 
+def _find_match(line: str, compiled_rules: list[tuple[str, re.Pattern[str]]]) -> str | None:
+    for kind, rx in compiled_rules:
+        if rx.search(line):
+            return kind
+    return None
+
+
+def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after: int, max_items: int, cluster_gap: int = 20) -> list[dict[str, Any]]:
+    compiled_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _FATAL_RULES]
+    headline_priority = {
+        "kernel-panic": 0,
+        "kernel-bug-at": 1,
+        "oops": 2,
+        "gpf": 3,
+        "null-deref": 4,
+        "bug": 5,
+    }
+    trace_priority = {
+        "rip": 0,
+        "call-trace": 1,
+    }
+
+    hits: list[dict[str, Any]] = []
+    for idx, line in enumerate(all_lines, start=1):
+        kind = _find_match(line, compiled_rules)
+        if not kind:
+            continue
+        hits.append({
+            "kind": kind,
+            "line": idx,
+            "text": line,
+        })
+    if not hits:
+        return []
+
+    clusters: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    for hit in hits:
+        if not current or hit["line"] - current[-1]["line"] <= cluster_gap:
+            current.append(hit)
+        else:
+            clusters.append(current)
+            current = [hit]
+    if current:
+        clusters.append(current)
+
+    out: list[dict[str, Any]] = []
+    for cluster in clusters[-max_items:]:
+        headline = None
+        trace_anchor = None
+        for item in cluster:
+            if item["kind"] in headline_priority:
+                if headline is None or headline_priority[item["kind"]] < headline_priority[headline["kind"]]:
+                    headline = item
+            if item["kind"] in trace_priority:
+                if trace_anchor is None or trace_priority[item["kind"]] < trace_priority[trace_anchor["kind"]]:
+                    trace_anchor = item
+        if headline is None and trace_anchor is None:
+            continue
+        anchor_line = headline["line"] if headline is not None else trace_anchor["line"]
+        context = _make_context(all_lines, anchor_line, before, after)
+        cluster_kind = headline["kind"] if headline is not None else trace_anchor["kind"]
+        out.append({
+            "id": _sig_id(path, cluster_kind, anchor_line, (headline or trace_anchor)["text"]),
+            "cluster_kind": cluster_kind,
+            "start_line": cluster[0]["line"],
+            "end_line": cluster[-1]["line"],
+            "headline": {
+                "kind": headline["kind"],
+                "line": headline["line"],
+                "text": headline["text"],
+            } if headline is not None else None,
+            "trace_anchor": {
+                "kind": trace_anchor["kind"],
+                "line": trace_anchor["line"],
+                "text": trace_anchor["text"],
+            } if trace_anchor is not None else None,
+            "context": context,
+        })
+    return out
+
+
 def _scan_subsystem_hints(all_lines: list[str], *, max_items: int) -> tuple[list[str], list[dict[str, Any]]]:
     tags_seen: list[str] = []
     evidence: list[dict[str, Any]] = []
@@ -429,13 +511,11 @@ def _fit_section(obj: Any, max_chars: int) -> Any:
 
 def _extract_kernel_log_layers(path: Path, all_lines: list[str], *, context_before: int, context_after: int, max_signatures_per_kind: int, max_total_signatures: int, max_chars: int) -> dict[str, Any]:
     essential = _extract_essential(all_lines)
-    fatal_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _FATAL_RULES]
     error_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _ERROR_RULES]
 
-    fatal_items = _scan_matches(
+    fatal_items = _scan_fatal_clusters(
+        path,
         all_lines,
-        fatal_rules,
-        reverse=True,
         before=max(context_before, 6),
         after=max(context_after, 8),
         max_items=min(max_total_signatures, max_signatures_per_kind * 2),
@@ -452,8 +532,8 @@ def _extract_kernel_log_layers(path: Path, all_lines: list[str], *, context_befo
     )
     subsystem_tags, subsystem_evidence = _scan_subsystem_hints(all_lines, max_items=max_signatures_per_kind)
 
-    has_call_trace = any(item["kind"] == "call-trace" for item in fatal_items)
-    dominant_failure_mode = fatal_items[0]["kind"] if fatal_items else (error_items[0]["kind"] if error_items else None)
+    has_call_trace = any((item.get("trace_anchor") or {}).get("kind") == "call-trace" for item in fatal_items)
+    dominant_failure_mode = fatal_items[0]["cluster_kind"] if fatal_items else (error_items[0]["kind"] if error_items else None)
 
     total_budget = max_chars
     essential_budget = max(400, int(total_budget * 0.18))
