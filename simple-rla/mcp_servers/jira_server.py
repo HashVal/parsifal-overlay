@@ -34,6 +34,12 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+
+_DEFAULT_SEARCH_FIELDS = "summary,status,updated,assignee,labels,components"
+_DEFAULT_GET_FIELDS = "summary,status,updated,assignee,labels,components,description,issuetype,priority,reporter"
+_MAX_TEXT_PREVIEW = 1200
+_MAX_ITEMS = 10
+
 from .stdio_jsonrpc_server import StdioMcpServer, Tool
 
 
@@ -217,6 +223,72 @@ def _load_cfg() -> JiraConfig:
     )
 
 
+def _clip_text(value: Any, limit: int = _MAX_TEXT_PREVIEW) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        if isinstance(value.get("content"), str):
+            value = value.get("content")
+        else:
+            value = json.dumps(value, ensure_ascii=False)
+    elif isinstance(value, list):
+        value = json.dumps(value, ensure_ascii=False)
+    else:
+        value = str(value)
+    value = value.strip()
+    if len(value) <= limit:
+        return value
+    return value[:limit] + f"... [truncated {len(value) - limit} chars]"
+
+
+def _user_name(user: Any) -> str | None:
+    if not isinstance(user, dict):
+        return None
+    for k in ("displayName", "name", "emailAddress", "key"):
+        v = user.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _normalize_issue(issue: dict, *, include_description: bool = True) -> dict:
+    fields = issue.get("fields") if isinstance(issue.get("fields"), dict) else {}
+    comments = (((fields.get("comment") or {}).get("comments") or []) if isinstance(fields.get("comment"), dict) else [])
+    labels = fields.get("labels") if isinstance(fields.get("labels"), list) else []
+    components = fields.get("components") if isinstance(fields.get("components"), list) else []
+
+    out = {
+        "key": issue.get("key"),
+        "summary": fields.get("summary"),
+        "status": ((fields.get("status") or {}).get("name") if isinstance(fields.get("status"), dict) else None),
+        "issue_type": ((fields.get("issuetype") or {}).get("name") if isinstance(fields.get("issuetype"), dict) else None),
+        "priority": ((fields.get("priority") or {}).get("name") if isinstance(fields.get("priority"), dict) else None),
+        "updated": fields.get("updated"),
+        "assignee": _user_name(fields.get("assignee")),
+        "reporter": _user_name(fields.get("reporter")),
+        "labels": [str(x) for x in labels[:_MAX_ITEMS]],
+        "components": [c.get("name") for c in components[:_MAX_ITEMS] if isinstance(c, dict) and c.get("name")],
+        "comment_count": len(comments),
+    }
+
+    if include_description:
+        out["description_preview"] = _clip_text(fields.get("description"))
+
+    if comments:
+        recent = comments[-min(len(comments), 3):]
+        out["recent_comments"] = [
+            {
+                "author": _user_name(c.get("author")),
+                "created": c.get("created"),
+                "body_preview": _clip_text(c.get("body"), limit=400),
+            }
+            for c in recent
+            if isinstance(c, dict)
+        ]
+
+    return out
+
+
 def _tool_search(client: JiraClient, args: dict) -> dict:
     jql = str(args.get("jql") or "").strip()
     if not jql:
@@ -226,12 +298,12 @@ def _tool_search(client: JiraClient, args: dict) -> dict:
     if isinstance(fields, list):
         fields = ",".join(str(x) for x in fields)
     elif fields is None:
-        fields = "summary,status,updated,assignee,labels,components"
+        fields = _DEFAULT_SEARCH_FIELDS
 
     start_at = int(args.get("start_at") or 0)
     max_results = int(args.get("max_results") or 50)
 
-    return client.request_json(
+    res = client.request_json(
         "GET",
         "/search",
         query={
@@ -241,6 +313,24 @@ def _tool_search(client: JiraClient, args: dict) -> dict:
             "fields": str(fields),
         },
     )
+
+    issues = res.get("issues") if isinstance(res, dict) else []
+    compact_issues = [
+        _normalize_issue(i, include_description=False)
+        for i in issues[:_MAX_ITEMS]
+        if isinstance(i, dict)
+    ]
+
+    out = {
+        "jql": jql,
+        "start_at": start_at,
+        "max_results": max_results,
+        "total": res.get("total") if isinstance(res, dict) else None,
+        "returned": len(compact_issues),
+        "issues": compact_issues,
+    }
+    logger.info("jira.search.compact total=%s returned=%s", out.get("total"), out.get("returned"))
+    return out
 
 
 def _tool_get(client: JiraClient, args: dict) -> dict:
@@ -254,8 +344,15 @@ def _tool_get(client: JiraClient, args: dict) -> dict:
         query = {"fields": ",".join(str(x) for x in fields)}
     elif isinstance(fields, str) and fields.strip():
         query = {"fields": fields.strip()}
+    else:
+        query = {"fields": _DEFAULT_GET_FIELDS}
 
-    return client.request_json("GET", f"/issue/{urllib.parse.quote(key)}", query=query)
+    issue = client.request_json("GET", f"/issue/{urllib.parse.quote(key)}", query=query)
+    if not isinstance(issue, dict):
+        return {"key": key, "error": "unexpected Jira issue payload"}
+    out = _normalize_issue(issue, include_description=True)
+    logger.info("jira.get.compact key=%s comments=%s", key, out.get("comment_count"))
+    return out
 
 
 def _tool_comment(client: JiraClient, args: dict) -> dict:
