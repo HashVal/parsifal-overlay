@@ -21,12 +21,16 @@ Tools:
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List
 
 from .stdio_jsonrpc_server import StdioMcpServer, Tool
+
+
+logger = logging.getLogger("simple_rla.file_tools")
 
 
 _DEFAULT_MAX_FILE_BYTES = 8 * 1024 * 1024
@@ -166,37 +170,43 @@ def _file_head(args: dict) -> dict:
     path = _resolve_path(args.get("path", ""))
     lines = int(args.get("lines", _DEFAULT_HEAD_LINES))
     max_chars = int(args.get("max_chars", _DEFAULT_MAX_CHARS))
+    logger.info("file.request tool=file_head path=%s lines=%s max_chars=%s", path, lines, max_chars)
     if lines <= 0 or max_chars <= 0:
         raise ValueError("lines and max_chars must be > 0")
     all_lines = _read_lines(path)
     selected = all_lines[:lines]
     content, truncated = _join_limited(selected, max_chars)
-    return {
+    out = {
         "path": str(path),
         "start_line": 1,
         "end_line": len(selected),
         "truncated": truncated,
         "content": content,
     }
+    logger.info("file.response tool=file_head path=%s start=%s end=%s truncated=%s chars=%s", path, out["start_line"], out["end_line"], out["truncated"], len(out["content"]))
+    return out
 
 
 def _file_tail(args: dict) -> dict:
     path = _resolve_path(args.get("path", ""))
     lines = int(args.get("lines", _DEFAULT_TAIL_LINES))
     max_chars = int(args.get("max_chars", 16000))
+    logger.info("file.request tool=file_tail path=%s lines=%s max_chars=%s", path, lines, max_chars)
     if lines <= 0 or max_chars <= 0:
         raise ValueError("lines and max_chars must be > 0")
     all_lines = _read_lines(path)
     start_idx = max(0, len(all_lines) - lines)
     selected = all_lines[start_idx:]
     content, truncated = _join_limited(selected, max_chars)
-    return {
+    out = {
         "path": str(path),
         "start_line": start_idx + 1,
         "end_line": len(all_lines),
         "truncated": truncated,
         "content": content,
     }
+    logger.info("file.response tool=file_tail path=%s start=%s end=%s truncated=%s chars=%s", path, out["start_line"], out["end_line"], out["truncated"], len(out["content"]))
+    return out
 
 
 def _file_read_range(args: dict) -> dict:
@@ -204,18 +214,21 @@ def _file_read_range(args: dict) -> dict:
     start_line = int(args.get("start_line", 0))
     end_line = int(args.get("end_line", 0))
     max_chars = int(args.get("max_chars", _DEFAULT_READ_RANGE_MAX_CHARS))
+    logger.info("file.request tool=file_read_range path=%s start=%s end=%s max_chars=%s", path, start_line, end_line, max_chars)
     if start_line < 1 or end_line < start_line or max_chars <= 0:
         raise ValueError("invalid line range or max_chars")
     all_lines = _read_lines(path)
     selected = all_lines[start_line - 1:end_line]
     content, truncated = _join_limited(selected, max_chars)
-    return {
+    out = {
         "path": str(path),
         "start_line": start_line,
         "end_line": min(end_line, len(all_lines)),
         "truncated": truncated,
         "content": content,
     }
+    logger.info("file.response tool=file_read_range path=%s start=%s end=%s truncated=%s chars=%s", path, out["start_line"], out["end_line"], out["truncated"], len(out["content"]))
+    return out
 
 
 def _file_grep(args: dict) -> dict:
@@ -228,6 +241,7 @@ def _file_grep(args: dict) -> dict:
     after = int(args.get("context_after", _DEFAULT_GREP_CONTEXT_AFTER))
     max_matches = int(args.get("max_matches", _DEFAULT_GREP_MAX_MATCHES))
     max_chars = int(args.get("max_chars", 24000))
+    logger.info("file.request tool=file_grep path=%s pattern=%s ignore_case=%s before=%s after=%s max_matches=%s max_chars=%s", path, pattern, ignore_case, before, after, max_matches, max_chars)
     if before < 0 or after < 0 or max_matches <= 0 or max_chars <= 0:
         raise ValueError("invalid grep limits")
     flags = re.IGNORECASE if ignore_case else 0
@@ -259,7 +273,7 @@ def _file_grep(args: dict) -> dict:
         matches.append(match_obj)
         budget -= rough
     truncated = total > len(matches)
-    return {
+    out = {
         "path": str(path),
         "pattern": pattern,
         "ignore_case": ignore_case,
@@ -268,6 +282,8 @@ def _file_grep(args: dict) -> dict:
         "truncated": truncated,
         "matches": matches,
     }
+    logger.info("file.response tool=file_grep path=%s pattern=%s match_count=%s returned=%s truncated=%s", path, pattern, out["match_count"], out["returned_matches"], out["truncated"])
+    return out
 
 
 def _sig_id(path: Path, kind: str, line_no: int, text: str) -> str:
@@ -334,6 +350,7 @@ def _extract_signatures_from_lines(path: Path, all_lines: list[str], *, context_
 def _log_extract_signatures(args: dict) -> dict:
     path = _resolve_path(args.get("path", ""))
     profile = str(args.get("profile", "kernel"))
+    logger.info("file.request tool=log_extract_signatures path=%s profile=%s", path, profile)
     if profile != "kernel":
         raise RuntimeError(f"unsupported log profile: {profile} (supported: kernel)")
     before = int(args.get("context_before", _DEFAULT_LOG_CONTEXT_BEFORE))
@@ -353,13 +370,15 @@ def _log_extract_signatures(args: dict) -> dict:
             break
         trimmed.append(sig)
         used += rough
-    return {
+    out = {
         "path": str(path),
         "profile": profile,
         "summary": result["summary"],
         "truncated": len(trimmed) < len(result["signatures"]),
         "signatures": trimmed,
     }
+    logger.info("file.response tool=log_extract_signatures path=%s profile=%s fatal=%s warning=%s subsystems=%s returned=%s truncated=%s", path, profile, out["summary"].get("fatal_count"), out["summary"].get("warning_count"), ",".join(out["summary"].get("subsystem_hints", [])[:6]), len(out["signatures"]), out["truncated"])
+    return out
 
 
 def _normalize_compare_line(line: str) -> str:
@@ -372,6 +391,7 @@ def _log_compare(args: dict) -> dict:
     left_path = _resolve_path(args.get("left_path", ""))
     right_path = _resolve_path(args.get("right_path", ""))
     profile = str(args.get("profile", "kernel"))
+    logger.info("file.request tool=log_compare left=%s right=%s profile=%s", left_path, right_path, profile)
     context_lines = int(args.get("context_lines", _DEFAULT_COMPARE_CONTEXT))
     max_signatures = int(args.get("max_signatures", 20))
     max_chars = int(args.get("max_chars", 24000))
@@ -427,6 +447,7 @@ def _log_compare(args: dict) -> dict:
         "shared_signatures": shared[:max_signatures],
         "summary": summary,
     }
+    logger.info("file.response tool=log_compare left=%s right=%s prefix=%s left_only=%s right_only=%s shared=%s", left_path, right_path, result["common_prefix_lines"], len(result["left_only_signatures"]), len(result["right_only_signatures"]), len(result["shared_signatures"]))
     return result
 
 
