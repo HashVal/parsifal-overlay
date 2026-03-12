@@ -253,6 +253,12 @@ def _safe_filename(name: str) -> str:
 
 
 def _default_attachment_dir(key: str) -> Path:
+    ws_attachments = os.environ.get("SIMPLE_RLA_ATTACHMENTS_DIR", "").strip()
+    if ws_attachments:
+        return Path(ws_attachments)
+    ws_root = os.environ.get("SIMPLE_RLA_WORKSPACE_DIR", "").strip()
+    if ws_root:
+        return Path(ws_root) / "attachments"
     return Path.cwd() / "artifacts" / "jira_attachments" / _safe_filename(key)
 
 

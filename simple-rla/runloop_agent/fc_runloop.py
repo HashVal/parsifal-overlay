@@ -21,6 +21,7 @@ from runloop_agent.openai_fc import chat_completions
 from runloop_agent.runloop import RunloopAgent
 from runloop_agent.workflow_config import load_workflow, format_message, exit_enabled
 from runloop_agent.dump_utils import DumpManager, last_user_message
+from runloop_agent.workspace import create_run_workspace, write_workspace_meta, workspace_env, utc_now_iso
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -119,6 +120,25 @@ async def main() -> None:
     log.info("start model=%s jira_key=%s max_steps=%s workflow=%s", args.model, args.jira_key, max_steps, workflow.name)
 
     cfg = load_config(args.config)
+    ws = create_run_workspace(artifacts_root=cfg.artifacts_root, jira_key=args.jira_key)
+    os.environ.update(workspace_env(ws))
+    file_handler = logging.FileHandler(ws.log_path, encoding="utf-8")
+    file_handler.setLevel(getattr(logging, str(args.log_level).upper(), logging.INFO))
+    file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logging.getLogger().addHandler(file_handler)
+    write_workspace_meta(ws, {
+        "run_id": ws.run_id,
+        "created_at": utc_now_iso(),
+        "jira_key": args.jira_key,
+        "model": args.model,
+        "mode": "fc",
+        "workflow": workflow.name,
+        "workflow_path": args.workflow,
+        "config_path": args.config,
+        "workspace_dir": str(ws.root),
+        "dump_enabled": bool(args.dump),
+    })
+    log.info("workspace.created dir=%s", ws.root)
 
     # Build messages from workflow config
     system_prompt = workflow.llm.system_prompt
@@ -127,7 +147,7 @@ async def main() -> None:
     else:
         initial_message = workflow.llm.default_message
 
-    dumper = DumpManager.create() if args.dump else None
+    dumper = DumpManager.create(ws.dumps_dir) if args.dump else None
     if dumper:
         log.info("dump.mode enabled dir=%s", dumper.root)
         dumper.write_meta({
@@ -216,10 +236,12 @@ async def main() -> None:
 
                 if dumper:
                     dumper.write_round(step, {
-                        "round": step,
+                        "iteration": step,
+                        "timestamp": utc_now_iso(),
                         "model": args.model,
-                        "system": system_prompt,
-                        "qprompt": last_user_message(messages),
+                        "system_prompt": system_prompt,
+                        "user_prompt": last_user_message(messages),
+                        "llm_response": mm.content,
                         "messages": messages,
                         "tools": [t.get("function", {}).get("name") for t in openai_tools],
                         "tool_calls": tool_calls_dump,
@@ -235,10 +257,12 @@ async def main() -> None:
             log.info("step=%d final_response content_len=%d", step, len(mm.content or ""))
             if dumper:
                 dumper.write_round(step, {
-                    "round": step,
+                    "iteration": step,
+                    "timestamp": utc_now_iso(),
                     "model": args.model,
-                    "system": system_prompt,
-                    "qprompt": last_user_message(messages),
+                    "system_prompt": system_prompt,
+                    "user_prompt": last_user_message(messages),
+                    "llm_response": mm.content,
                     "messages": messages,
                     "tools": [t.get("function", {}).get("name") for t in openai_tools],
                     "tool_calls": [],

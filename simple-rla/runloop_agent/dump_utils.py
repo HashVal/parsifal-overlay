@@ -20,9 +20,12 @@ class DumpManager:
 
     @classmethod
     def create(cls, base_dir: Path | None = None) -> "DumpManager":
-        base = base_dir or Path(os.getcwd()) / "dumps"
-        tag = _now_tag()
-        root = (base / tag).resolve()
+        if base_dir is None:
+            base = Path(os.getcwd()) / "dumps"
+            tag = _now_tag()
+            root = (base / tag).resolve()
+        else:
+            root = Path(base_dir).resolve()
         root.mkdir(parents=True, exist_ok=True)
         return cls(root=root)
 
@@ -30,7 +33,7 @@ class DumpManager:
         self._write_json("meta.json", payload)
 
     def write_round(self, round_idx: int, payload: dict) -> None:
-        self._write_json(f"round_{round_idx:03d}.json", payload)
+        self._write_json(f"iteration_{round_idx:03d}.json", payload)
 
     def _write_json(self, filename: str, payload: dict) -> None:
         path = self.root / filename

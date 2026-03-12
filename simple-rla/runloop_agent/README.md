@@ -170,6 +170,54 @@ It uses:
 
 Tool results are expected to be MCP-style content blocks; this client extracts `text` blocks and returns `text`.
 
+## Run workspace and dump layout
+
+Each run now creates a dedicated workspace directory under the configured `artifacts_root`.
+
+Layout:
+
+```text
+<artifacts_root>/runs/<jira_key-or-adhoc>/<timestamp>/
+  meta.json
+  session.log
+  attachments/
+  dumps/
+    meta.json
+    iteration_001.json
+    iteration_002.json
+```
+
+Notes:
+
+- `meta.json` stores run-level metadata such as model, workflow, jira key, workspace path, and whether dump mode is enabled.
+- `session.log` stores the run log in addition to stderr output.
+- `attachments/` is the default location for Jira attachment downloads during that run.
+- `dumps/` is only populated when `--dump` is enabled.
+
+## --dump behavior
+
+`--dump` already existed; it now writes into the current run workspace instead of creating a separate timestamped dump tree under the current working directory.
+
+When enabled, each LLM iteration is stored as:
+
+```text
+dumps/iteration_001.json
+dumps/iteration_002.json
+```
+
+Each iteration dump contains at least:
+
+- `iteration`
+- `timestamp`
+- `model`
+- `system_prompt`
+- `user_prompt`
+- `llm_response`
+- `tool_calls`
+- `tool_results`
+
+Mode-specific raw fields (`messages`, `input_items`, `response`, etc.) are still preserved for debugging.
+
 ## Jira attachments
 
 The Jira MCP server now exposes two attachment-focused tools:

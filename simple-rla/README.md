@@ -44,3 +44,4 @@ Recent Jira auth updates:
   - `jira_list_attachments`
   - `jira_fetch_attachment`
 - Attachments are downloaded to local files and returned as compact metadata + preview, rather than sending full file contents back through the model context.
+- Each run now creates its own workspace/output directory under `artifacts_root`, and `--dump` writes iteration files into that run workspace instead of a standalone `cwd/dumps/...` tree.
