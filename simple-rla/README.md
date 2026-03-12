@@ -5,7 +5,7 @@ A minimal "runloop agent" + a few stdlib-only MCP servers.
 Layout:
 
 - `runloop_agent/`: OpenAI Responses-based runloop that can call MCP tools over stdio
-- `mcp_servers/`: minimal MCP servers (currently: Jira)
+- `mcp_servers/`: minimal MCP servers (currently: Jira + local file/log inspection)
 
 Quick start:
 
@@ -45,3 +45,11 @@ Recent Jira auth updates:
   - `jira_fetch_attachment`
 - Attachments are downloaded to local files and returned as compact metadata + preview, rather than sending full file contents back through the model context.
 - Each run now creates its own workspace/output directory under `artifacts_root`, and `--dump` writes iteration files into that run workspace instead of a standalone `cwd/dumps/...` tree.
+- A new local file/log MCP server is available for run-workspace artifacts, exposing:
+  - `file_head`
+  - `file_tail`
+  - `file_read_range`
+  - `file_grep`
+  - `log_extract_signatures`
+  - `log_compare`
+- These tools are read-only and are intended to let the agent inspect downloaded logs (for example `dmesg` attachments) without relying only on truncated attachment previews.

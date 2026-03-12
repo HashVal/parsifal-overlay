@@ -22,6 +22,15 @@ Current Jira MCP tools:
 - `jira_list_attachments`
 - `jira_fetch_attachment`
 
+Current local file/log MCP tools:
+
+- `file_head`
+- `file_tail`
+- `file_read_range`
+- `file_grep`
+- `log_extract_signatures`
+- `log_compare`
+
 ## Workflow Configuration
 
 The agent behavior is defined in `workflow.yaml` (configurable via `--workflow`):
@@ -135,6 +144,14 @@ JIRA_API_PREFIX = "/rest/api/latest"
 JIRA_AUTH = "bearer"
 JIRA_TOKEN = "YOUR_BEARER_TOKEN"
 JIRA_VERIFY_SSL = "true"
+
+[mcp_servers.files]
+command = "python3"
+args = ["-m", "mcp_servers.file_tools_server"]
+
+[mcp_servers.files.env]
+FILE_TOOLS_ROOT = "../../artifacts/runloop"
+FILE_TOOLS_MAX_FILE_BYTES = "8388608"
 ```
 
 Alternative (basic auth, if your Jira environment supports it):
@@ -217,6 +234,28 @@ Each iteration dump contains at least:
 - `tool_results`
 
 Mode-specific raw fields (`messages`, `input_items`, `response`, etc.) are still preserved for debugging.
+
+## Local file/log tools
+
+The local file/log MCP server exposes a small read-only inspection surface for artifacts saved into the run workspace.
+
+Tools:
+
+- `file_head(path, lines?, max_chars?)`
+- `file_tail(path, lines?, max_chars?)`
+- `file_read_range(path, start_line, end_line, max_chars?)`
+- `file_grep(path, pattern, ignore_case?, context_before?, context_after?, max_matches?, max_chars?)`
+- `log_extract_signatures(path, profile="kernel", ...)`
+- `log_compare(left_path, right_path, profile="kernel", ...)`
+
+Behavior notes:
+
+- The server is read-only.
+- By default it only reads files under the current run workspace (`SIMPLE_RLA_WORKSPACE_DIR`).
+- `FILE_TOOLS_ROOT` is provided in `example.mcp.toml` as a fallback for manual/ad-hoc runs.
+- Outputs are clipped to avoid flooding the model context.
+- `log_extract_signatures` is rule-based in v0 and focuses on kernel panic / warning / subsystem hints.
+- `log_compare` is RCA-oriented: it compares normalized common prefix + extracted signatures, not a raw full diff.
 
 ## Jira attachments
 

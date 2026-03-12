@@ -18,6 +18,16 @@ JIRA_AUTH = "bearer"
 JIRA_TOKEN = "YOUR_BEARER_TOKEN"
 JIRA_VERIFY_SSL = "true"
 
+[mcp_servers.files]
+command = "python3"
+args = ["-m", "mcp_servers.file_tools_server"]
+
+[mcp_servers.files.env]
+# The runloop also exports SIMPLE_RLA_WORKSPACE_DIR per run; this fallback keeps
+# the file server usable in ad-hoc/manual testing too.
+FILE_TOOLS_ROOT = "../../artifacts/runloop"
+FILE_TOOLS_MAX_FILE_BYTES = "8388608"
+
 # Alternative: basic auth (known-working in some environments)
 # JIRA_AUTH = "basic"
 # JIRA_USER = "YOUR_USER"
