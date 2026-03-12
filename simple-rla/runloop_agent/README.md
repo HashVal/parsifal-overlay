@@ -145,7 +145,8 @@ Notes:
 - `Basic JIRA_USER:JIRA_TOKEN` is **not** a generally safe assumption; avoid documenting it as the primary setup.
 - For Jira Cloud, you may want `JIRA_API_PREFIX="/rest/api/3"`.
 - If you don't want secrets in the TOML, remove them from the file and export them in your shell; the runloop inherits `os.environ`.
-- Current `jira_server.py` behavior may still use `JIRA_TOKEN` as a basic-auth fallback internally; docs/examples should prefer `JIRA_PASSWORD` for clarity.
+- Current `jira_server.py` now prefers `JIRA_PASSWORD` for `basic` auth and keeps `JIRA_TOKEN` only as a compatibility fallback.
+- Jira auth failures are diagnosed more explicitly: `401`, HTML login/SSO pages, and non-JSON responses are reported with clearer hints.
 
 ## MCP Contract Expectations
 

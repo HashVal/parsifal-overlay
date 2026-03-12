@@ -33,3 +33,10 @@ Jira auth notes:
   - `JIRA_USER="..."`
   - `JIRA_PASSWORD="..."`
 - Do **not** assume `basic` should always use `JIRA_USER:JIRA_TOKEN`; that depends on the target Jira environment.
+
+Recent Jira auth updates:
+
+- Default Jira API prefix is now aligned to `/rest/api/latest`.
+- `jira_server.py` now prefers `JIRA_PASSWORD` for `basic` auth.
+- `JIRA_TOKEN` is still accepted as a fallback secret in `basic` mode for compatibility.
+- Jira auth failures now produce clearer diagnostics for `401`, HTML login/SSO pages, and non-JSON responses.

@@ -63,7 +63,7 @@ class JiraConfig:
     api_prefix: str
     auth: str
     user: str
-    token: str
+    secret: str
     verify_ssl: bool
     timeout_s: int
 
@@ -80,11 +80,11 @@ class JiraClient:
 
         auth = self._cfg.auth
         if auth == "basic":
-            raw = f"{self._cfg.user}:{self._cfg.token}".encode("utf-8")
+            raw = f"{self._cfg.user}:{self._cfg.secret}".encode("utf-8")
             b64 = base64.b64encode(raw).decode("ascii")
             h["Authorization"] = f"Basic {b64}"
         elif auth == "bearer":
-            h["Authorization"] = f"Bearer {self._cfg.token}"
+            h["Authorization"] = f"Bearer {self._cfg.secret}"
         else:
             raise ValueError(f"unsupported JIRA_AUTH: {auth}")
 
@@ -122,20 +122,57 @@ class JiraClient:
 
         try:
             with urllib.request.urlopen(req, timeout=self._cfg.timeout_s, context=self._ssl_context()) as resp:
+                status = getattr(resp, "status", "?")
+                content_type = resp.headers.get("Content-Type", "")
+                www_authenticate = resp.headers.get("WWW-Authenticate", "")
+                seraph_reason = resp.headers.get("X-Seraph-LoginReason", "")
                 raw = resp.read().decode("utf-8", errors="replace")
-                logger.info("jira.response status=%s bytes=%d", getattr(resp, "status", "?"), len(raw))
-                # Debug: log first 500 chars of raw response to diagnose non-JSON returns
+                logger.info("jira.response status=%s bytes=%d content_type=%s", status, len(raw), content_type)
+                logger.debug(
+                    "jira.response.headers status=%s content_type=%s seraph=%s www_auth=%s",
+                    status,
+                    content_type,
+                    seraph_reason,
+                    www_authenticate[:200],
+                )
                 logger.debug("jira.response.raw preview=%s", raw[:500].replace("\n", " "))
                 if not raw.strip():
                     return {}
+                if "json" not in content_type.lower():
+                    if "html" in content_type.lower():
+                        raise RuntimeError(
+                            "Jira returned HTML instead of JSON "
+                            f"(status {status}, content-type {content_type}). "
+                            "This usually means auth failed, a login/SSO page intercepted the request, or the API base URL is wrong."
+                        )
+                    raise RuntimeError(
+                        f"Jira returned unexpected content-type {content_type!r} (status {status}) instead of JSON"
+                    )
                 try:
                     return json.loads(raw)
                 except json.JSONDecodeError as e:
                     logger.error("jira.json_parse_error error=%s raw_preview=%s", e, raw[:500].replace("\n", " "))
-                    raise RuntimeError(f"Jira returned non-JSON (status {getattr(resp, 'status', '?')}): {raw[:200]}") from e
+                    raise RuntimeError(f"Jira returned invalid JSON (status {status}): {raw[:200]}") from e
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-            logger.error("jira.http_error code=%s raw=%s", exc.code, raw[:500])
+            content_type = exc.headers.get("Content-Type", "") if exc.headers else ""
+            www_authenticate = exc.headers.get("WWW-Authenticate", "") if exc.headers else ""
+            seraph_reason = exc.headers.get("X-Seraph-LoginReason", "") if exc.headers else ""
+            logger.error(
+                "jira.http_error code=%s content_type=%s seraph=%s www_auth=%s raw=%s",
+                exc.code,
+                content_type,
+                seraph_reason,
+                www_authenticate[:200],
+                raw[:500],
+            )
+            if exc.code == 401:
+                raise RuntimeError(
+                    "Jira authentication failed (401). "
+                    f"content-type={content_type or '?'} seraph={seraph_reason or '?'}. "
+                    "If using basic auth, verify JIRA_USER:JIRA_PASSWORD. "
+                    "If using token auth, try JIRA_AUTH=bearer with JIRA_TOKEN."
+                )
             raise RuntimeError(f"Jira HTTP {exc.code}: {raw[:2000]}")
         except urllib.error.URLError as exc:
             logger.error("jira.url_error error=%s", exc)
@@ -147,15 +184,24 @@ def _load_cfg() -> JiraConfig:
     if not base_url:
         raise SystemExit("JIRA_BASE_URL is required")
 
-    api_prefix = os.environ.get("JIRA_API_PREFIX", "/rest/api/2").strip() or "/rest/api/2"
+    api_prefix = os.environ.get("JIRA_API_PREFIX", "/rest/api/latest").strip() or "/rest/api/latest"
     auth = os.environ.get("JIRA_AUTH", "basic").strip().lower() or "basic"
     user = os.environ.get("JIRA_USER", "").strip()
+    password = os.environ.get("JIRA_PASSWORD", "").strip()
     token = os.environ.get("JIRA_TOKEN", "").strip()
 
-    if auth == "basic" and (not user or not token):
-        raise SystemExit("JIRA_USER and JIRA_TOKEN are required for basic auth")
-    if auth == "bearer" and not token:
-        raise SystemExit("JIRA_TOKEN is required for bearer auth")
+    if auth == "basic":
+        secret = password or token
+        if not user or not secret:
+            raise SystemExit("JIRA_USER and JIRA_PASSWORD are required for basic auth (JIRA_TOKEN is accepted as fallback)")
+        if not password and token:
+            logger.warning("basic auth is using JIRA_TOKEN as password fallback; prefer JIRA_PASSWORD for clarity")
+    elif auth == "bearer":
+        secret = token
+        if not secret:
+            raise SystemExit("JIRA_TOKEN is required for bearer auth")
+    else:
+        raise SystemExit(f"unsupported JIRA_AUTH: {auth}")
 
     verify_ssl = _env_bool("JIRA_VERIFY_SSL", True)
     timeout_s = _env_int("JIRA_TIMEOUT_S", 30)
@@ -165,7 +211,7 @@ def _load_cfg() -> JiraConfig:
         api_prefix=api_prefix,
         auth=auth,
         user=user,
-        token=token,
+        secret=secret,
         verify_ssl=verify_ssl,
         timeout_s=timeout_s,
     )
