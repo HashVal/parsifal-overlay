@@ -106,7 +106,7 @@ Notes:
 
 This runloop expects a TOML file (parsed via `tomllib`).
 
-Example (private Jira, basic auth):
+Example (recommended: bearer auth):
 
 ```toml
 [client]
@@ -120,18 +120,32 @@ command = "python3"
 args = ["-m", "mcp_servers.jira_server"]
 
 [mcp_servers.jira.env]
-JIRA_BASE_URL = "https://jira.devtools.mycompany.com"
-JIRA_API_PREFIX = "/rest/api/2"
+JIRA_BASE_URL = "https://jira.devtools.intel.com"
+JIRA_API_PREFIX = "/rest/api/latest"
+JIRA_AUTH = "bearer"
+JIRA_TOKEN = "YOUR_BEARER_TOKEN"
+JIRA_VERIFY_SSL = "true"
+```
+
+Alternative (basic auth, if your Jira environment supports it):
+
+```toml
+[mcp_servers.jira.env]
+JIRA_BASE_URL = "https://jira.devtools.intel.com"
+JIRA_API_PREFIX = "/rest/api/latest"
 JIRA_AUTH = "basic"
 JIRA_USER = "YOUR_USER"
-JIRA_TOKEN = "YOUR_TOKEN"
+JIRA_PASSWORD = "YOUR_PASSWORD"
 JIRA_VERIFY_SSL = "true"
 ```
 
 Notes:
 
-- For Jira Cloud, you probably want `JIRA_API_PREFIX="/rest/api/3"`.
-- If you don't want secrets in the TOML, remove `JIRA_USER`/`JIRA_TOKEN` from the TOML and export them in your shell; the runloop inherits `os.environ`.
+- In the current target environment, `Bearer JIRA_TOKEN` and `Basic JIRA_USER:JIRA_PASSWORD` are both known-working paths.
+- `Basic JIRA_USER:JIRA_TOKEN` is **not** a generally safe assumption; avoid documenting it as the primary setup.
+- For Jira Cloud, you may want `JIRA_API_PREFIX="/rest/api/3"`.
+- If you don't want secrets in the TOML, remove them from the file and export them in your shell; the runloop inherits `os.environ`.
+- Current `jira_server.py` behavior may still use `JIRA_TOKEN` as a basic-auth fallback internally; docs/examples should prefer `JIRA_PASSWORD` for clarity.
 
 ## MCP Contract Expectations
 
