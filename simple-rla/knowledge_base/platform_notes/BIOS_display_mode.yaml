@@ -1,0 +1,116 @@
+id: platform-note-bios-display-mode
+kind: platform_note
+status: confirmed
+title: BIOS display mode semantics
+summary: >
+  Describes the BIOS knob `display mode` and defines the semantics of its three
+  options: integrated mode, discrete mode, and hybrid mode.
+content: |
+  This note records the known semantics of the BIOS setting `display mode`.
+
+  `display mode` is a BIOS knob that controls which GPU devices are enabled
+  during BIOS initialization.
+
+  The three currently known options are:
+  - integrated mode
+  - discrete mode
+  - hybrid mode
+
+  These options should be treated as platform configuration modes that influence
+  which GPU devices are enabled at BIOS initialization time. They are therefore
+  important case-context signals during graphics bring-up, debugging, and RCA.
+
+  When comparing cases across display modes, the mode should first be understood
+  as a BIOS configuration choice rather than as a root cause by itself. At the
+  same time, mode comparison is useful because failures reproduced across
+  multiple display modes may indicate a shared lower-level path, while failures
+  isolated to one mode may indicate a mode-specific enablement or routing issue.
+
+platforms:
+  - generic_x86_platforms
+
+subsystems:
+  - bios
+  - graphics
+
+modes:
+  - integrated
+  - discrete
+  - hybrid
+
+tags:
+  - bios
+  - bios-knob
+  - display-mode
+  - integrated
+  - discrete
+  - hybrid
+  - graphics-topology
+
+facts:
+  - BIOS provides a setting named `display mode`.
+  - `display mode` is a BIOS knob.
+  - `display mode` controls which GPU devices are enabled during BIOS initialization.
+  - `integrated mode` means BIOS enables only the integrated GPU during initialization.
+  - `discrete mode` means BIOS enables only the discrete GPU during initialization.
+  - `hybrid mode` means BIOS enables both the integrated GPU and the discrete GPU during initialization.
+
+terminology:
+  display_mode: >
+    A BIOS configuration knob that determines which GPU devices are enabled
+    during BIOS initialization.
+  integrated: >
+    BIOS display mode in which only the integrated GPU is enabled during BIOS
+    initialization.
+  discrete: >
+    BIOS display mode in which only the discrete GPU is enabled during BIOS
+    initialization.
+  hybrid: >
+    BIOS display mode in which both the integrated GPU and the discrete GPU are
+    enabled during BIOS initialization.
+
+constraints:
+  - Do not treat the BIOS display mode label itself as the root cause.
+  - Treat display mode as an important case-context field when comparing failures.
+  - If the same failure reproduces across multiple display modes, prioritize investigation of shared lower-level code paths.
+  - If a failure appears only in one display mode, keep mode-specific enablement and routing behavior in scope.
+
+analysis_notes:
+  - Record the BIOS display mode explicitly in Jira cases, RCA notes, and KB-backed grounding inputs.
+  - Use display mode comparison to separate shared-path failures from mode-specific configuration issues.
+  - Display mode is especially relevant when evaluating GPU enumeration, initialization path, and graphics stack bring-up differences.
+
+signals:
+  - type: component
+    value: BIOS
+  - type: config
+    value: display mode
+  - type: mode
+    value: integrated
+  - type: mode
+    value: discrete
+  - type: mode
+    value: hybrid
+
+refs:
+  - type: term
+    value: display mode
+  - type: term
+    value: integrated mode
+  - type: term
+    value: discrete mode
+  - type: term
+    value: hybrid mode
+
+source:
+  system: knowledge_base
+  path: knowledge_base/platform_notes/BIOS_display_mode.yaml
+  author: draft
+  created_at: 2026-03-13T23:05:00+08:00
+  updated_at: 2026-03-13T23:05:00+08:00
+
+trust:
+  level: high
+  rationale: >
+    This note is based on explicit known platform information about the BIOS
+    `display mode` knob and its three defined options.
