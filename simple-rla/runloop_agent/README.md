@@ -31,6 +31,12 @@ Current local file/log MCP tools:
 - `log_extract_signatures`
 - `log_compare`
 
+Current KB MCP tools (MVP skeleton):
+
+- `kb_get`
+- `kb_search`
+- `kb_ground`
+
 ## Workflow Configuration
 
 The agent behavior is defined in `workflow.yaml` (configurable via `--workflow`):
@@ -152,6 +158,10 @@ args = ["-m", "mcp_servers.file_tools_server"]
 [mcp_servers.files.env]
 FILE_TOOLS_ROOT = "../../artifacts/runloop"
 FILE_TOOLS_MAX_FILE_BYTES = "8388608"
+
+[mcp_servers.kb]
+command = "python3"
+args = ["-m", "mcp_servers.kb_server"]
 ```
 
 Alternative (basic auth, if your Jira environment supports it):
@@ -257,6 +267,31 @@ Behavior notes:
 - The file/log MCP server now emits request/response summary logs for observability (tool name, path, counts, truncation, compare summary).
 - `log_extract_signatures` is rule-based and now returns layered output for kernel logs: `essential`, `fatal`, `errors`, `subsystem_hints`, and `summary`.
 - `log_compare` is RCA-oriented: it compares normalized common prefix plus layered fatal/error signatures, not a raw full diff.
+
+## KB tools
+
+The KB MCP server reads YAML-backed KB objects from:
+
+```text
+simple-rla/knowledge_base/
+```
+
+Current MVP tools:
+
+- `kb_get(id)`
+  - fetch one KB object by stable id
+- `kb_search(query, ...)`
+  - perform lightweight keyword/metadata retrieval over local KB objects
+- `kb_ground(context, signals, hints?, limits?)`
+  - build a lightweight grounding package for the current case
+  - aggregation is allowed; over-reasoning is intentionally avoided
+
+Design notes:
+
+- The current KB source of truth is YAML-first and human-maintained.
+- The current `kb_ground` contract is designed around structured context/signals, not raw long-form logs.
+- `kb_ground` returns lightweight matched objects grouped by kind and may surface coverage gaps when some expected kinds have no sufficiently relevant hits.
+- `kb_tools.md` under `mcp_servers/` records the current design notes for KB tool inputs/outputs and balance policy.
 
 ## Jira attachments
 

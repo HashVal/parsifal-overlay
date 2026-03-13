@@ -5,7 +5,8 @@ A minimal "runloop agent" + a few stdlib-only MCP servers.
 Layout:
 
 - `runloop_agent/`: OpenAI Responses-based runloop that can call MCP tools over stdio
-- `mcp_servers/`: minimal MCP servers (currently: Jira + local file/log inspection)
+- `mcp_servers/`: minimal MCP servers (currently: Jira + local file/log inspection + KB skeleton)
+- `knowledge_base/`: YAML-first local KB source of truth for issue patterns, RCA objects, platform notes, code notes, playbooks, and workarounds
 
 Quick start:
 
@@ -53,3 +54,10 @@ Recent Jira auth updates:
   - `log_extract_signatures`
   - `log_compare`
 - These tools are read-only and are intended to let the agent inspect downloaded logs (for example `dmesg` attachments) without relying only on truncated attachment previews.
+- A new KB MCP server skeleton is also available, exposing:
+  - `kb_get`
+  - `kb_search`
+  - `kb_ground`
+- The KB source of truth currently lives under `simple-rla/knowledge_base/` and is designed to be YAML-first and human-maintained.
+- Current KB design notes are documented in `mcp_servers/kb_tools.md`.
+- `kb_ground` is intended to build a lightweight grounding package for a case: aggregation is allowed, but over-reasoning is intentionally avoided.
