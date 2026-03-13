@@ -1,0 +1,78 @@
+id: rca-pkt-20231-example
+kind: rca
+status: confirmed
+title: PKT-20231 BMG Hybrid/Integrated boot panic during Xe initialization
+summary: >
+  PKT-20231 captures a boot-time kernel BUG on BMG when enabling Hybrid or
+  Integrated mode, with a call trace through Xe LRC and GEM initialization.
+content: |
+  This RCA records one concrete case instance. It preserves the exact case
+  framing, environment, observed evidence, and the conclusion reached for this
+  incident.
+
+case_id: PKT-20231
+
+exact_environment:
+  platform: BMG
+  modes:
+    - hybrid
+    - integrated
+  kernel_version: 6.14-intel
+  cmdline:
+    - xe.force_probe=*
+    - modprobe.blacklist=i915
+    - xe.max_vfs=7
+
+observed_evidence:
+  - type: log
+    value: kernel BUG at drivers/gpu/drm/drm_gem.c:181!
+  - type: function
+    value: drm_gem_private_object_init+0xea/0xf0
+  - type: function
+    value: xe_lrc_create
+  - type: observation
+    value: Hybrid and Integrated dmesg both hit the same BUG
+
+conclusion:
+  summary: >
+    The panic is consistent with a GEM private object initialization failure
+    during Xe bring-up, likely reached from the LRC creation path.
+  confidence: medium
+
+workaround:
+  summary: >
+    No validated workaround is recorded in this example. Temporary mode
+    restriction or feature gating may be considered pending confirmation.
+  confidence: low
+
+fix:
+  summary: >
+    Review drm_gem_private_object_init call assumptions and Xe GEM / BO setup
+    path before determining a code fix.
+  confidence: medium
+
+refs:
+  - type: jira
+    value: PKT-20231
+  - type: code
+    value: drivers/gpu/drm/drm_gem.c:181
+  - type: file
+    value: attachments/dmesg_Hybrid.txt
+  - type: file
+    value: attachments/dmesg_integrated.txt
+
+derived_patterns:
+  - issue-pattern-bmg-xe-gem-private-object-init
+
+source:
+  system: knowledge_base
+  path: knowledge_base/rca/example.yaml
+  author: example
+  created_at: 2026-03-12T23:00:00+08:00
+  updated_at: 2026-03-12T23:00:00+08:00
+
+trust:
+  level: medium
+  rationale: >
+    Example RCA object created from current discussion and sample findings; used
+    as a schema reference rather than a final signed-off RCA record.

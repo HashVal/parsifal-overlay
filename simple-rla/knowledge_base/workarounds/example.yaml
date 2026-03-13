@@ -1,0 +1,49 @@
+id: workaround-bmg-xe-mode-restriction-example
+kind: workaround
+status: historical
+title: Temporary mode restriction workaround for Xe bring-up failure
+summary: >
+  Example workaround entry showing how to record an operational mitigation while
+  a permanent fix is still under investigation.
+content: |
+  This entry demonstrates how to document applicability, operational steps,
+  risks, and retirement conditions for a workaround.
+
+applicability:
+  platforms:
+    - BMG
+  subsystems:
+    - xe
+    - drm
+  modes:
+    - hybrid
+    - integrated
+  symptoms:
+    - kernel BUG at drivers/gpu/drm/drm_gem.c:181!
+
+workaround_steps:
+  - Restrict the affected mode in validation runs until root cause is confirmed.
+  - Preserve full dmesg and configuration evidence for each reproduction.
+  - Re-test after candidate fix or configuration change is available.
+
+risks:
+  - May reduce coverage by hiding the original triggering path.
+  - Should not be treated as a substitute for root cause analysis.
+
+superseded_by: null
+fixed_by: null
+
+refs:
+  - type: symptom
+    value: kernel BUG at drivers/gpu/drm/drm_gem.c:181!
+
+source:
+  system: knowledge_base
+  path: knowledge_base/workarounds/example.yaml
+  author: example
+  created_at: 2026-03-12T23:00:00+08:00
+  updated_at: 2026-03-12T23:00:00+08:00
+
+trust:
+  level: low
+  rationale: Example workaround entry used as a formatting reference.

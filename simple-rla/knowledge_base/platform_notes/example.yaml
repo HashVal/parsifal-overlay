@@ -1,0 +1,51 @@
+id: platform-note-bmg-hybrid-integrated-modes-example
+kind: platform_note
+status: confirmed
+title: BMG Hybrid and Integrated mode terminology reference
+summary: >
+  Defines the intended meaning of Hybrid and Integrated mode for BMG-related
+  graphics bring-up and debugging discussions.
+content: |
+  This note records platform-facing terminology and constraints that help
+  interpret bug reports, dmesg evidence, and mode-dependent behavior.
+
+platforms:
+  - BMG
+
+subsystems:
+  - xe
+  - drm
+
+modes:
+  - hybrid
+  - integrated
+
+facts:
+  - Hybrid and Integrated are treated as distinct operating modes for graphics bring-up.
+  - Mode selection can materially change initialization path, topology visibility, or active components.
+  - A failure reproducing in both modes is stronger evidence of a shared lower-level problem.
+
+terminology:
+  hybrid: Mode where hybrid graphics behavior is enabled for the platform under test.
+  integrated: Mode where the integrated graphics path is emphasized during validation.
+
+constraints:
+  - Do not assume a mode-specific symptom is mode-specific root cause without comparing shared call paths.
+  - Platform terminology must remain normalized across Jira, logs, and KB entries.
+
+refs:
+  - type: term
+    value: hybrid
+  - type: term
+    value: integrated
+
+source:
+  system: knowledge_base
+  path: knowledge_base/platform_notes/example.yaml
+  author: example
+  created_at: 2026-03-12T23:00:00+08:00
+  updated_at: 2026-03-12T23:00:00+08:00
+
+trust:
+  level: medium
+  rationale: Example platform note used as a formatting reference.

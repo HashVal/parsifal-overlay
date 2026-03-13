@@ -1,0 +1,90 @@
+id: issue-pattern-bmg-xe-gem-private-object-init
+kind: issue_pattern
+status: confirmed
+title: BMG Xe GEM private object initialization BUG during LRC creation
+summary: >
+  On BMG platforms, Hybrid or Integrated mode may trigger a kernel BUG in
+  drm_gem_private_object_init during Xe bring-up and LRC creation.
+content: |
+  This pattern captures a class of boot-time failures where Xe initialization
+  reaches GEM private object setup with an invalid or unexpected object state.
+
+  Typical visible signals include a kernel BUG in drm_gem.c and a call trace
+  containing xe_lrc_create and related BO helpers.
+
+tags:
+  - bmg
+  - xe
+  - drm
+  - gem
+  - kernel-bug
+  - lrc
+
+platforms:
+  - BMG
+
+subsystems:
+  - xe
+  - drm
+  - gem
+
+modes:
+  - hybrid
+  - integrated
+
+symptoms:
+  - kernel BUG at drivers/gpu/drm/drm_gem.c:181!
+  - Call Trace includes xe_lrc_create
+  - Both Hybrid and Integrated mode may reproduce the same failure
+
+signals:
+  - type: log_pattern
+    value: kernel BUG at drivers/gpu/drm/drm_gem.c:181!
+  - type: function
+    value: drm_gem_private_object_init
+  - type: function
+    value: xe_lrc_create
+  - type: function
+    value: xe_bo_create_pin_map_novm
+  - type: file
+    value: drivers/gpu/drm/drm_gem.c
+  - type: config
+    value: xe.force_probe=*
+
+likely_root_cause:
+  summary: >
+    Xe GEM / BO initialization may violate an invariant expected by
+    drm_gem_private_object_init under specific tile / GT bring-up conditions.
+  confidence: medium
+
+typical_checks:
+  - Inspect drm_gem_private_object_init caller path from xe_lrc_create.
+  - Compare Hybrid and Integrated logs for identical call chain and preconditions.
+  - Review tile / GT fusion state handling before GEM object initialization.
+  - Check whether BO creation helpers pass a malformed or unsupported object state.
+
+related_rcas:
+  - PKT-20231
+
+refs:
+  - type: jira
+    value: PKT-20231
+  - type: code
+    value: drivers/gpu/drm/drm_gem.c:181
+  - type: code
+    value: drivers/gpu/drm/xe/xe_gem.c
+  - type: code
+    value: drivers/gpu/drm/xe/xe_lrc.c
+
+source:
+  system: knowledge_base
+  path: knowledge_base/issue_patterns/example.yaml
+  author: example
+  created_at: 2026-03-12T23:00:00+08:00
+  updated_at: 2026-03-12T23:00:00+08:00
+
+trust:
+  level: medium
+  rationale: >
+    Example pattern derived from current design discussion and observed case
+    structure; intended as a formatting reference rather than validated truth.

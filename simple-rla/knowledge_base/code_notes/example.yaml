@@ -1,0 +1,54 @@
+id: code-note-drm-gem-private-object-init-example
+kind: code_note
+status: confirmed
+title: drm_gem_private_object_init semantic note
+summary: >
+  Describes the role and expectations of drm_gem_private_object_init in DRM GEM
+  object initialization paths.
+content: |
+  This note explains why this function matters in crash signatures and what kind
+  of invariants or preconditions callers are expected to satisfy.
+
+subsystems:
+  - drm
+  - gem
+  - xe
+
+signals:
+  - type: function
+    value: drm_gem_private_object_init
+  - type: file
+    value: drivers/gpu/drm/drm_gem.c
+
+semantic_role:
+  - Initializes or validates a GEM private object in the DRM stack.
+  - Acts as a choke point where caller-side invariant violations may surface.
+
+caller_examples:
+  - xe_lrc_create
+  - xe_bo_create_pin_map_novm
+
+invariants:
+  - Caller must provide an object state compatible with private object initialization.
+  - Failure here may reflect an earlier setup bug rather than a defect in the immediate call site.
+
+analysis_notes:
+  - When this function appears in a fatal trace, inspect both the direct caller and the object construction path.
+  - Compare preconditions across modes or platforms if the same function fails in multiple environments.
+
+refs:
+  - type: code
+    value: drivers/gpu/drm/drm_gem.c
+  - type: function
+    value: drm_gem_private_object_init
+
+source:
+  system: knowledge_base
+  path: knowledge_base/code_notes/example.yaml
+  author: example
+  created_at: 2026-03-12T23:00:00+08:00
+  updated_at: 2026-03-12T23:00:00+08:00
+
+trust:
+  level: medium
+  rationale: Example code note used as a formatting reference.

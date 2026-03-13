@@ -1,0 +1,47 @@
+id: playbook-kernel-panic-triage-example
+kind: playbook
+status: confirmed
+title: Kernel panic triage playbook for graphics bring-up issues
+summary: >
+  Provides a recommended triage sequence for boot-time kernel panic or BUG
+  events observed during graphics driver initialization.
+content: |
+  This playbook is intended to guide DEBUG_STEPS generation and evidence
+  collection order when a panic-class failure is observed in boot logs.
+
+triggers:
+  - kernel panic
+  - kernel BUG at
+  - Call Trace
+  - RIP
+
+recommended_steps:
+  - Run layered log extraction once to identify headline and trace anchor.
+  - Read a focused line range around the fatal headline and call trace.
+  - Compare equivalent logs across modes if multiple reproductions exist.
+  - Inspect direct caller path in code for violated invariants.
+  - Search for related historical issue patterns or RCAs.
+
+stop_conditions:
+  - A stable fatal signature and call chain have been identified.
+  - A plausible root cause direction has been supported by both logs and code context.
+  - Further grep-only exploration no longer adds new evidence.
+
+escalation_paths:
+  - Request platform-specific owner input if mode semantics remain unclear.
+  - Escalate to code owner when a concrete invariant failure site is identified.
+
+refs:
+  - type: concept
+    value: DEBUG_STEPS
+
+source:
+  system: knowledge_base
+  path: knowledge_base/playbooks/example.yaml
+  author: example
+  created_at: 2026-03-12T23:00:00+08:00
+  updated_at: 2026-03-12T23:00:00+08:00
+
+trust:
+  level: medium
+  rationale: Example playbook used as a formatting reference.
