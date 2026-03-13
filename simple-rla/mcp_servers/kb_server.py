@@ -44,6 +44,17 @@ _OUTPUT_KIND_BUCKETS = {
     "workaround": "workarounds",
 }
 
+_PLATFORM_TAXONOMY = {
+    "bmg": ["generic_x86_platforms"],
+    "mtl": ["generic_x86_platforms"],
+    "arl": ["generic_x86_platforms"],
+    "lnl": ["generic_x86_platforms"],
+    "ptl": ["generic_x86_platforms"],
+    "rpl": ["generic_x86_platforms"],
+    "adl": ["generic_x86_platforms"],
+    "tgl": ["generic_x86_platforms"],
+}
+
 
 def _project_root() -> Path:
     return Path(__file__).resolve().parent.parent
@@ -282,6 +293,14 @@ def _lower_values(values: list[Any]) -> set[str]:
     return out
 
 
+def _expand_platforms(values: list[Any]) -> set[str]:
+    base = _lower_values(values)
+    expanded = set(base)
+    for val in list(base):
+        expanded.update(_PLATFORM_TAXONOMY.get(val, []))
+    return expanded
+
+
 def _text_blob(obj: dict[str, Any]) -> str:
     parts: list[str] = []
     for key in ("title", "summary", "content"):
@@ -329,7 +348,7 @@ def _score_object(obj: dict[str, Any], *, query_terms: list[str], kinds: set[str
     if kinds and str(obj.get("kind")) not in kinds:
         return 0.0, []
 
-    obj_platforms = _lower_values(obj.get("platforms") or [])
+    obj_platforms = _expand_platforms(obj.get("platforms") or [])
     obj_subsystems = _lower_values(obj.get("subsystems") or [])
     obj_modes = _lower_values(obj.get("modes") or [])
 
@@ -392,7 +411,7 @@ def _kb_get(args: dict) -> dict:
 def _kb_search(args: dict) -> dict:
     query = str(args.get("query") or "").strip()
     kinds = {str(x) for x in (args.get("kinds") or []) if str(x).strip()}
-    platforms = _lower_values(args.get("platforms") or [])
+    platforms = _expand_platforms(args.get("platforms") or [])
     subsystems = _lower_values(args.get("subsystems") or [])
     modes = _lower_values(args.get("modes") or [])
     limit = int(args.get("limit", 8))
@@ -478,7 +497,7 @@ def _kb_ground(args: dict) -> dict:
             query_terms.extend(t.lower() for t in re.split(r"\s+", val) if t.strip())
     query_terms.extend(str(sig.get("value") or "").lower() for sig in signals if str(sig.get("value") or "").strip())
 
-    platforms = _lower_values(context.get("platforms") or [])
+    platforms = _expand_platforms(context.get("platforms") or [])
     subsystems = _lower_values(context.get("subsystems") or [])
     modes = _lower_values(context.get("modes") or [])
 
