@@ -266,12 +266,7 @@ def _decode_preview(data: bytes) -> tuple[str, bool]:
     sample = data[:_ATTACHMENT_PREVIEW_BYTES]
     if b"\x00" in sample:
         return "<binary preview omitted>", True
-    text = sample.decode("utf-8", errors="replace")
-    lines = text.splitlines()
-    preview = "\n".join(lines[:_ATTACHMENT_PREVIEW_LINES])
-    if len(sample) < len(data) or len(lines) > _ATTACHMENT_PREVIEW_LINES:
-        preview += f"\n... [truncated preview of {len(data)} bytes]"
-    return preview.strip(), False
+    return "<text attachment saved locally; inspect with file tools>", False
 
 
 def _extract_attachments(issue: dict) -> list[dict]:
@@ -495,6 +490,7 @@ def _tool_fetch_attachment(client: JiraClient, args: dict) -> dict:
         "mime_type": content_type or match.get("mime_type"),
         "binary": binary,
         "preview": preview,
+        "next_action_hint": "Use file tools on saved_path to inspect content.",
     }
 
 

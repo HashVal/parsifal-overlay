@@ -200,13 +200,14 @@ def advance_phase(
     used_jira: bool,
     used_files: bool,
     used_kb: bool,
+    downloaded_text_attachment: bool,
     step: int,
 ) -> tuple[PhaseState, bool]:
     cur = phase_state.phase
     nxt = cur
     if cur == PHASE_CASE_IDENTIFICATION and used_jira:
         nxt = PHASE_EVIDENCE_COLLECTION
-    elif cur == PHASE_EVIDENCE_COLLECTION and used_files:
+    elif cur == PHASE_EVIDENCE_COLLECTION and (downloaded_text_attachment or used_files):
         nxt = PHASE_ARTIFACT_INSPECTION
     elif cur == PHASE_ARTIFACT_INSPECTION and used_kb:
         nxt = PHASE_KB_GROUNDING

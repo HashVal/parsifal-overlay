@@ -235,6 +235,7 @@ async def main() -> None:
                 used_jira = False
                 used_files = False
                 used_kb = False
+                downloaded_text_attachment = False
                 messages.append({"role": "assistant", "content": mm.content, "tool_calls": [
                     {
                         "id": tc.id,
@@ -274,6 +275,13 @@ async def main() -> None:
                                     record_call(tool_history, phase_state.phase, step, family, tc.name, tool_args)
                                     if family == "jira":
                                         used_jira = True
+                                        if tc.name == "jira__jira_fetch_attachment":
+                                            try:
+                                                parsed_tool_out = json.loads(tool_out)
+                                            except Exception:
+                                                parsed_tool_out = None
+                                            if isinstance(parsed_tool_out, dict) and not parsed_tool_out.get("binary", True):
+                                                downloaded_text_attachment = True
                                     elif family == "files":
                                         used_files = True
                                         seen_files = True
@@ -312,6 +320,7 @@ async def main() -> None:
                     used_jira=used_jira,
                     used_files=used_files,
                     used_kb=used_kb,
+                    downloaded_text_attachment=downloaded_text_attachment,
                     step=step,
                 )
                 if advanced:
