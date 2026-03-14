@@ -100,6 +100,140 @@ def _mcp_to_openai_tool_schema(tool_name_fc: str, spec) -> dict:
     }
 
 
+def _extract_signal_text(signal: dict[str, Any] | None) -> str | None:
+    if not isinstance(signal, dict):
+        return None
+    text = signal.get("text")
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    return None
+
+
+def _guess_platforms_from_text(texts: list[str]) -> list[str]:
+    joined = "\n".join(texts).upper()
+    platform_markers = ["BMG", "RPL", "MTL", "ARL", "LNL", "PTL", "ADL", "TGL", "ARC"]
+    out: list[str] = []
+    for marker in platform_markers:
+        if marker in joined:
+            out.append(marker)
+    return out
+
+
+def _build_auto_kb_ground_args(jira_key: str, recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
+    log_extract = None
+    for item in reversed(recent_tool_results):
+        if item.get("name") == "files__log_extract_signatures":
+            output = item.get("output")
+            if isinstance(output, str):
+                try:
+                    parsed = json.loads(output)
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    log_extract = parsed
+                    break
+
+    signals: list[dict[str, str]] = []
+    platforms: list[str] = []
+    subsystems: list[str] = []
+    modes: list[str] = []
+    keywords: list[str] = []
+    summary = ""
+    title = jira_key
+    kernel_version = ""
+    cmdline_flags: list[str] = []
+
+    if isinstance(log_extract, dict):
+        essential = log_extract.get("essential") if isinstance(log_extract.get("essential"), dict) else {}
+        fatal = log_extract.get("fatal") if isinstance(log_extract.get("fatal"), dict) else {}
+        summary_info = log_extract.get("summary") if isinstance(log_extract.get("summary"), dict) else {}
+
+        kernel_version = str(essential.get("kernel_version") or "").strip()
+        cmdline = str(essential.get("cmdline") or "").strip()
+        dmi = str(essential.get("dmi") or "").strip()
+        driver_hints = essential.get("driver_hints") if isinstance(essential.get("driver_hints"), list) else []
+        fatal_items = fatal.get("items") if isinstance(fatal.get("items"), list) else []
+        dominant_failure_mode = str(summary_info.get("dominant_failure_mode") or "").strip()
+        primary_subsystems = summary_info.get("primary_subsystems") if isinstance(summary_info.get("primary_subsystems"), list) else []
+
+        texts_for_platforms = [dmi, kernel_version, cmdline]
+        platforms = _guess_platforms_from_text([t for t in texts_for_platforms if t])
+        subsystems = [str(x) for x in primary_subsystems if isinstance(x, str) and x.strip()]
+
+        if any("integrated" in path.lower() for path in [str(log_extract.get("path") or "")]):
+            modes.append("integrated")
+        if any("hybrid" in path.lower() for path in [str(log_extract.get("path") or "")]):
+            modes.append("hybrid")
+
+        if dominant_failure_mode:
+            signals.append({"type": "symptom", "value": dominant_failure_mode})
+
+        if fatal_items:
+            first_fatal = fatal_items[0] if isinstance(fatal_items[0], dict) else {}
+            headline = _extract_signal_text(first_fatal.get("headline") if isinstance(first_fatal.get("headline"), dict) else None)
+            trace_anchor = _extract_signal_text(first_fatal.get("trace_anchor") if isinstance(first_fatal.get("trace_anchor"), dict) else None)
+            if headline:
+                signals.append({"type": "log_pattern", "value": headline})
+                keywords.append(headline)
+            if trace_anchor:
+                signals.append({"type": "function", "value": trace_anchor})
+                keywords.append(trace_anchor)
+            if headline or trace_anchor:
+                summary = " ; ".join([x for x in [headline, trace_anchor] if x])
+                title = headline or title
+
+        for hint in driver_hints[:4]:
+            if isinstance(hint, str) and hint.strip():
+                cmdline_flags.append(hint.strip())
+                signals.append({"type": "config", "value": hint.strip()})
+                if hint.strip().startswith("xe"):
+                    signals.append({"type": "module", "value": "xe"})
+                elif hint.strip().startswith("i915"):
+                    signals.append({"type": "module", "value": "i915"})
+
+        if dmi:
+            platforms = platforms or _guess_platforms_from_text([dmi])
+            keywords.append(dmi)
+
+    dedup_signals: list[dict[str, str]] = []
+    seen_signal_pairs: set[tuple[str, str]] = set()
+    for sig in signals:
+        key = (sig.get("type", ""), sig.get("value", ""))
+        if not key[0] or not key[1] or key in seen_signal_pairs:
+            continue
+        seen_signal_pairs.add(key)
+        dedup_signals.append(sig)
+
+    return {
+        "context": {
+            "case_id": jira_key,
+            "title": title,
+            "summary": summary or f"Lightweight KB grounding for {jira_key}",
+            "platforms": platforms,
+            "subsystems": subsystems,
+            "modes": modes,
+            "environment": {
+                "kernel_version": kernel_version,
+                "cmdline": cmdline_flags,
+            },
+        },
+        "signals": dedup_signals[:8],
+        "hints": {
+            "preferred_kinds": ["platform_note", "issue_pattern", "code_note"],
+            "focus": [
+                "shared failure path after artifact inspection",
+                "driver and code-path grounding for provisional DEBUG_STEPS",
+            ],
+        },
+        "limits": {
+            "max_total_hits": 5,
+            "max_hits_per_kind": 2,
+            "include_kinds": ["platform_note", "issue_pattern", "code_note"],
+            "include_snippets": True,
+        },
+    }
+
+
 async def main() -> None:
     p = argparse.ArgumentParser(description="Runloop agent using OpenAI function calling + MCP tools")
     p.add_argument("--config", required=True, help="Path to MCP config TOML")
@@ -188,6 +322,7 @@ async def main() -> None:
         seen_files = False
         seen_kb = False
         seen_failure_signal = False
+        recent_tool_results: list[dict[str, Any]] = []
 
         for step in range(1, max_steps + 1):
             if forced_draft_mode:
@@ -308,6 +443,7 @@ async def main() -> None:
                                 raise
 
                     tool_results_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
+                    recent_tool_results.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
 
                     messages.append({
                         "role": "tool",
@@ -330,6 +466,55 @@ async def main() -> None:
                     log.info("phase_advance from=%s to=%s step=%d", phase_state.phase, new_phase_state.phase, step)
                     phase_state = new_phase_state
                     phase_usage = {"jira": 0, "files": 0, "kb": 0}
+                    if phase_state.phase == "kb_grounding" and not seen_kb and not phase_state.kb_grounding_attempted:
+                        kb_args = _build_auto_kb_ground_args(args.jira_key, recent_tool_results)
+                        synthetic_id = f"auto-kb-ground-{step}"
+                        log.info(
+                            "auto_kb_ground triggered step=%d jira_key=%s platforms=%s subsystems=%s signals=%d",
+                            step,
+                            args.jira_key,
+                            ((kb_args.get("context") or {}).get("platforms") or []),
+                            ((kb_args.get("context") or {}).get("subsystems") or []),
+                            len(kb_args.get("signals") or []),
+                        )
+                        messages.append({
+                            "role": "assistant",
+                            "content": "Proceeding with one lightweight KB grounding pass based on the extracted failure signals.",
+                            "tool_calls": [{
+                                "id": synthetic_id,
+                                "type": "function",
+                                "function": {"name": "kb__kb_ground", "arguments": json.dumps(kb_args, ensure_ascii=False)},
+                            }],
+                        })
+                        try:
+                            tool_out = await agent.call_tool("kb.kb_ground", kb_args)
+                            seen_kb = True
+                            phase_state = PhaseState(
+                                phase=phase_state.phase,
+                                phase_index=phase_state.phase_index,
+                                entered_step=phase_state.entered_step,
+                                notes=list(phase_state.notes),
+                                kb_grounding_attempted=True,
+                            )
+                            log.info("auto_kb_ground result len=%d", len(tool_out))
+                        except Exception as exc:
+                            tool_out = json.dumps({"error": str(exc)})
+                            phase_state = PhaseState(
+                                phase=phase_state.phase,
+                                phase_index=phase_state.phase_index,
+                                entered_step=phase_state.entered_step,
+                                notes=list(phase_state.notes),
+                                kb_grounding_attempted=True,
+                            )
+                            log.error("auto_kb_ground failed error=%s", exc)
+                        tool_results_dump.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
+                        recent_tool_results.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": synthetic_id,
+                            "name": "kb__kb_ground",
+                            "content": tool_out,
+                        })
                 if should_force_draft(
                     phase_state,
                     phase_usage,
