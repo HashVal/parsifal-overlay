@@ -40,10 +40,13 @@ llm:
     3. Artifact inspection
        - Extract the primary failure signature and a small set of supporting signals.
        - Avoid repetitive file reads.
+       - Do not draft DEBUG_STEPS yet once the first plausible failure path appears.
 
     4. KB grounding
-       - Use structured case context and extracted signals to retrieve lightweight KB grounding.
+       - Perform one lightweight KB grounding pass after artifact inspection identifies a plausible primary failure path.
+       - Use KB to improve platform / driver / issue-pattern / code-path grounding.
        - Do not use KB as a replacement for reasoning.
+       - Do not turn KB grounding into a broad research phase.
 
     5. Provisional DEBUG_STEPS
        - Produce a minimal useful debugging plan with hypotheses, concrete next steps, and unknowns.
@@ -52,7 +55,9 @@ llm:
     Guidance for tool usage:
     - Prefer Jira tools first for case facts.
     - Prefer file tools only after the needed attachment has been downloaded.
+    - After artifact inspection yields a plausible primary failure path, perform one lightweight KB grounding pass before drafting when step budget allows.
     - Prefer kb_ground over repeated kb_search calls when structured signals are already available.
+    - Prefer one focused KB lookup over multiple broad KB searches.
     - Avoid repeated reads of the same source unless you are filling a specific gap.
 
     Expected final output shape:
@@ -72,15 +77,17 @@ llm:
     1. identify the case and basic platform/mode/driver framing
     2. collect only the most useful Jira facts and necessary attachments
     3. inspect artifacts to extract the primary failure signature and supporting signals
-    4. use KB only for lightweight grounding after key signals are available
+    4. perform one lightweight KB grounding pass after key signals are available
     5. produce a minimal useful provisional DEBUG_STEPS draft
 
     Important constraints:
     - do not aim for a final RCA
     - do not repeat broad reads
     - do not over-explain intermediate reasoning
+    - do not skip KB grounding when artifact inspection has already identified a plausible primary failure path and step budget still allows it
+    - keep KB grounding lightweight and targeted rather than exploratory
     - if information is missing, record it under unknowns instead of continuing open-ended search
-    - once you have enough evidence for a plausible debugging direction, produce the provisional DEBUG_STEPS draft
+    - once you have enough evidence plus one lightweight KB grounding pass, produce the provisional DEBUG_STEPS draft
   
   # Message to send when no jira_key is provided
   default_message: |
@@ -93,7 +100,7 @@ llm:
 # Execution control
 execution:
   # Maximum number of LLM interaction steps
-  max_steps: 12
+  max_steps: 7
   
   # Timeout for LLM requests (seconds)
   request_timeout_s: 300

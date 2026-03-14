@@ -25,8 +25,8 @@ PHASE_TOOL_BUDGETS: dict[str, dict[str, int]] = {
     PHASE_CASE_IDENTIFICATION: {"jira": 2, "files": 0, "kb": 0},
     PHASE_EVIDENCE_COLLECTION: {"jira": 4, "files": 0, "kb": 0},
     PHASE_ARTIFACT_INSPECTION: {"jira": 1, "files": 4, "kb": 0},
-    PHASE_KB_GROUNDING: {"jira": 0, "files": 1, "kb": 2},
-    PHASE_DRAFT_DEBUG_STEPS: {"jira": 0, "files": 1, "kb": 1},
+    PHASE_KB_GROUNDING: {"jira": 0, "files": 0, "kb": 1},
+    PHASE_DRAFT_DEBUG_STEPS: {"jira": 0, "files": 0, "kb": 0},
     PHASE_DONE: {"jira": 0, "files": 0, "kb": 0},
 }
 
@@ -37,6 +37,7 @@ class PhaseState:
     phase_index: int = 1
     entered_step: int = 1
     notes: list[str] = field(default_factory=list)
+    kb_grounding_attempted: bool = False
 
 
 @dataclass(frozen=True)
@@ -201,21 +202,34 @@ def advance_phase(
     used_files: bool,
     used_kb: bool,
     downloaded_text_attachment: bool,
+    seen_failure_signal: bool,
+    seen_kb: bool,
     step: int,
 ) -> tuple[PhaseState, bool]:
     cur = phase_state.phase
     nxt = cur
+    kb_grounding_attempted = phase_state.kb_grounding_attempted
     if cur == PHASE_CASE_IDENTIFICATION and used_jira:
         nxt = PHASE_EVIDENCE_COLLECTION
     elif cur == PHASE_EVIDENCE_COLLECTION and (downloaded_text_attachment or used_files):
         nxt = PHASE_ARTIFACT_INSPECTION
-    elif cur == PHASE_ARTIFACT_INSPECTION and used_kb:
-        nxt = PHASE_KB_GROUNDING
+    elif cur == PHASE_ARTIFACT_INSPECTION and seen_failure_signal:
+        if seen_kb or kb_grounding_attempted:
+            nxt = PHASE_DRAFT_DEBUG_STEPS
+        else:
+            nxt = PHASE_KB_GROUNDING
     elif cur == PHASE_KB_GROUNDING:
+        kb_grounding_attempted = True
         nxt = PHASE_DRAFT_DEBUG_STEPS
     if nxt == cur:
         return phase_state, False
-    return PhaseState(phase=nxt, phase_index=PHASE_ORDER.index(nxt) + 1, entered_step=step, notes=list(phase_state.notes)), True
+    return PhaseState(
+        phase=nxt,
+        phase_index=PHASE_ORDER.index(nxt) + 1,
+        entered_step=step,
+        notes=list(phase_state.notes),
+        kb_grounding_attempted=kb_grounding_attempted,
+    ), True
 
 
 def should_force_draft(
@@ -230,13 +244,19 @@ def should_force_draft(
 ) -> bool:
     if phase_state.phase in {PHASE_DRAFT_DEBUG_STEPS, PHASE_DONE}:
         return False
-    if step >= max_steps - 2:
+    remaining_steps = max_steps - step
+    if phase_state.phase == PHASE_ARTIFACT_INSPECTION:
+        if seen_failure_signal and not seen_kb and not phase_state.kb_grounding_attempted and remaining_steps > 1:
+            return False
+    if phase_state.phase == PHASE_KB_GROUNDING and not phase_state.kb_grounding_attempted and remaining_steps > 0:
+        return False
+    if remaining_steps <= 1:
         return True
     budgets = PHASE_TOOL_BUDGETS.get(phase_state.phase, {})
     for family, budget in budgets.items():
         if budget > 0 and phase_usage.get(family, 0) >= budget:
             return True
-    if seen_files and (seen_kb or seen_failure_signal):
+    if seen_files and seen_failure_signal and (seen_kb or phase_state.kb_grounding_attempted):
         return True
     return False
 

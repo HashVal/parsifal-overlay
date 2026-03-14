@@ -321,6 +321,8 @@ async def main() -> None:
                     used_files=used_files,
                     used_kb=used_kb,
                     downloaded_text_attachment=downloaded_text_attachment,
+                    seen_failure_signal=seen_failure_signal,
+                    seen_kb=seen_kb,
                     step=step,
                 )
                 if advanced:
@@ -337,10 +339,16 @@ async def main() -> None:
                     seen_failure_signal=seen_failure_signal,
                 ):
                     if not forced_draft_mode:
-                        log.info("forced_draft enabled phase=%s step=%d", phase_state.phase, step)
+                        log.info("forced_draft enabled phase=%s step=%d kb_seen=%s kb_attempted=%s", phase_state.phase, step, seen_kb, phase_state.kb_grounding_attempted)
                     forced_draft_mode = True
                     if phase_state.phase != "draft_debug_steps":
-                        phase_state = PhaseState(phase="draft_debug_steps", phase_index=5, entered_step=step, notes=list(phase_state.notes))
+                        phase_state = PhaseState(
+                            phase="draft_debug_steps",
+                            phase_index=5,
+                            entered_step=step,
+                            notes=list(phase_state.notes),
+                            kb_grounding_attempted=phase_state.kb_grounding_attempted,
+                        )
                         phase_usage = {"jira": 0, "files": 0, "kb": 0}
 
                 if dumper:
