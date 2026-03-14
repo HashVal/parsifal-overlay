@@ -193,14 +193,39 @@ async def main() -> None:
                 if not messages or messages[-1].get("content") != FORCED_DRAFT_NUDGE:
                     messages.append({"role": "user", "content": FORCED_DRAFT_NUDGE})
             log.info("step=%d/%d chat_completions phase=%s usage=%s forced_draft=%s", step, max_steps, phase_state.phase, phase_usage, forced_draft_mode)
-            mm = chat_completions(
-                model=args.model,
-                messages=messages,
-                tools=openai_tools,
-                tool_choice=workflow.llm.tool_choice,
-                temperature=workflow.llm.temperature,
-                timeout_s=workflow.execution.request_timeout_s,
-            )
+            try:
+                mm = chat_completions(
+                    model=args.model,
+                    messages=messages,
+                    tools=openai_tools,
+                    tool_choice=workflow.llm.tool_choice,
+                    temperature=workflow.llm.temperature,
+                    timeout_s=workflow.execution.request_timeout_s,
+                )
+            except Exception as exc:
+                log.error("chat_completions_failed step=%d phase=%s error=%s", step, phase_state.phase, exc)
+                if dumper:
+                    dumper.write_round(step, {
+                        "iteration": step,
+                        "timestamp": utc_now_iso(),
+                        "model": args.model,
+                        "status": "incomplete",
+                        "failure_stage": "chat_completions_request",
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                        "phase": phase_state.phase,
+                        "phase_usage": phase_usage,
+                        "forced_draft_mode": forced_draft_mode,
+                        "system_prompt": system_prompt,
+                        "user_prompt": last_user_message(messages),
+                        "llm_response": None,
+                        "messages": messages,
+                        "tools": [t.get("function", {}).get("name") for t in openai_tools],
+                        "tool_calls": [],
+                        "tool_results": [],
+                        "response": None,
+                    })
+                raise
 
             tool_calls_dump = []
             tool_results_dump = []

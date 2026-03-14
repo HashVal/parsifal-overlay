@@ -155,15 +155,38 @@ async def main() -> None:
 
         for step in range(1, max_steps + 1):
             log.info("step=%d/%d create_response prev_id=%s", step, max_steps, prev_id)
-            rr = create_response(
-                model=args.model,
-                input_items=input_items,
-                tools=tools,
-                tool_choice=workflow.llm.tool_choice,
-                previous_response_id=prev_id,
-                temperature=workflow.llm.temperature,
-                timeout_s=workflow.execution.request_timeout_s,
-            )
+            try:
+                rr = create_response(
+                    model=args.model,
+                    input_items=input_items,
+                    tools=tools,
+                    tool_choice=workflow.llm.tool_choice,
+                    previous_response_id=prev_id,
+                    temperature=workflow.llm.temperature,
+                    timeout_s=workflow.execution.request_timeout_s,
+                )
+            except Exception as exc:
+                log.error("create_response_failed step=%d prev_id=%s error=%s", step, prev_id, exc)
+                if dumper:
+                    dumper.write_round(step, {
+                        "iteration": step,
+                        "timestamp": utc_now_iso(),
+                        "model": args.model,
+                        "status": "incomplete",
+                        "failure_stage": "responses_request",
+                        "error_type": type(exc).__name__,
+                        "error_message": str(exc),
+                        "previous_response_id": prev_id,
+                        "system_prompt": system_prompt,
+                        "user_prompt": last_user_input(input_items),
+                        "llm_response": None,
+                        "input_items": input_items,
+                        "tools": [t.get("name") for t in tools],
+                        "tool_calls": [],
+                        "tool_results": [],
+                        "response": None,
+                    })
+                raise
             prev_id = rr.response_id
             log.info("response id=%s function_calls=%d", rr.response_id, len(rr.function_calls))
 
