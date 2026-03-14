@@ -61,3 +61,4 @@ Recent Jira auth updates:
 - The KB source of truth currently lives under `simple-rla/knowledge_base/` and is designed to be YAML-first and human-maintained.
 - Current KB design notes are documented in `mcp_servers/kb_tools.md`.
 - `kb_ground` is intended to build a lightweight grounding package for a case: aggregation is allowed, but over-reasoning is intentionally avoided.
+- KB matching now also includes a lightweight platform taxonomy step so generic platform notes (for example `generic_x86_platforms`) can still be matched from more specific case platform labels (for example `BMG`).

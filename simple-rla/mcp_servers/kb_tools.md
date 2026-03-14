@@ -621,6 +621,22 @@ This means `kb_ground` should try to return a useful spread of KB kinds, but it 
    - a kind should participate in balanced selection only if it has sufficiently relevant candidates
    - if a bucket has no strong hit, it should be treated as empty for that request
 
+3. **lightweight platform taxonomy should be applied during matching**
+   - generic platform notes should remain retrievable from specific platform contexts
+   - for example, a case carrying `BMG` should still be able to match KB objects tagged with `generic_x86_platforms`
+   - this mapping should stay lightweight and explicit rather than turning into a large hidden ontology in the first implementation
+
+4. **empty buckets are normal**
+   - `matched_objects.issue_patterns`, `matched_objects.rcas`, etc. may legitimately be empty arrays
+   - an empty bucket is better than filling the result with weak or misleading hits
+
+5. **unused quota should flow to stronger kinds**
+   - if one kind has no acceptable hit, remaining budget may be used by other kinds with stronger matches
+
+6. **coverage gaps should be surfaced**
+   - the tool should be able to expose when some expected knowledge kinds are missing for the current case/domain
+   - this is useful both for the model and for future KB growth
+
 3. **empty buckets are normal**
    - `matched_objects.issue_patterns`, `matched_objects.rcas`, etc. may legitimately be empty arrays
    - an empty bucket is better than filling the result with weak or misleading hits
