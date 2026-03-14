@@ -23,6 +23,7 @@ from runloop_agent.workflow_config import load_workflow, format_message, exit_en
 from runloop_agent.dump_utils import DumpManager, last_user_message
 from runloop_agent.runloop_control import (
     FORCED_DRAFT_NUDGE,
+    KB_GROUNDING_NUDGE,
     PhaseState,
     advance_phase,
     check_budget,
@@ -369,6 +370,41 @@ async def main() -> None:
                 continue
 
             # Final
+            if (
+                phase_state.phase == "kb_grounding"
+                and not seen_kb
+                and not phase_state.kb_grounding_attempted
+            ):
+                log.warning(
+                    "kb_grounding_exit_gate triggered step=%d seen_kb=%s kb_attempted=%s content_len=%d",
+                    step,
+                    seen_kb,
+                    phase_state.kb_grounding_attempted,
+                    len(mm.content or ""),
+                )
+                messages.append({"role": "user", "content": KB_GROUNDING_NUDGE})
+                phase_state = PhaseState(
+                    phase=phase_state.phase,
+                    phase_index=phase_state.phase_index,
+                    entered_step=phase_state.entered_step,
+                    notes=list(phase_state.notes),
+                    kb_grounding_attempted=True,
+                )
+                if dumper:
+                    dumper.write_round(step, {
+                        "iteration": step,
+                        "timestamp": utc_now_iso(),
+                        "model": args.model,
+                        "system_prompt": system_prompt,
+                        "user_prompt": last_user_message(messages),
+                        "llm_response": mm.content,
+                        "messages": messages,
+                        "tools": [t.get("function", {}).get("name") for t in openai_tools],
+                        "tool_calls": [],
+                        "tool_results": [],
+                        "response": {"content": mm.content, "tool_calls": [], "gated": "kb_grounding_exit_gate"},
+                    })
+                continue
             if not no_tool_exit:
                 log.warning("exit_condition no_tool_calls disabled; exiting anyway")
             log.info("step=%d final_response content_len=%d", step, len(mm.content or ""))

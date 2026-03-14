@@ -290,3 +290,10 @@ FORCED_DRAFT_NUDGE = (
     "- if uncertain, keep the item short and concrete\n"
     "- prefer incomplete but useful bullets over long analysis"
 )
+
+KB_GROUNDING_NUDGE = (
+    "You are in KB grounding phase.\n"
+    "Before drafting or exiting, perform one lightweight KB grounding lookup now.\n"
+    "Prefer kb_ground with the current case context and extracted failure signals.\n"
+    "Do not perform broad KB search."
+)
