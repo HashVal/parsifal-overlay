@@ -21,6 +21,17 @@ from runloop_agent.openai_fc import chat_completions
 from runloop_agent.runloop import RunloopAgent
 from runloop_agent.workflow_config import load_workflow, format_message, exit_enabled
 from runloop_agent.dump_utils import DumpManager, last_user_message
+from runloop_agent.runloop_control import (
+    FORCED_DRAFT_NUDGE,
+    PhaseState,
+    advance_phase,
+    check_budget,
+    check_repeat_guard,
+    record_call,
+    record_tool_use,
+    should_force_draft,
+    tool_family,
+)
 from runloop_agent.workspace import create_run_workspace, write_workspace_meta, workspace_env, utc_now_iso
 
 
@@ -169,9 +180,19 @@ async def main() -> None:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": initial_message},
         ]
+        phase_state = PhaseState(entered_step=1)
+        phase_usage: dict[str, int] = {"jira": 0, "files": 0, "kb": 0}
+        tool_history = []
+        forced_draft_mode = False
+        seen_files = False
+        seen_kb = False
+        seen_failure_signal = False
 
         for step in range(1, max_steps + 1):
-            log.info("step=%d/%d chat_completions", step, max_steps)
+            if forced_draft_mode:
+                if not messages or messages[-1].get("content") != FORCED_DRAFT_NUDGE:
+                    messages.append({"role": "system", "content": FORCED_DRAFT_NUDGE})
+            log.info("step=%d/%d chat_completions phase=%s usage=%s forced_draft=%s", step, max_steps, phase_state.phase, phase_usage, forced_draft_mode)
             mm = chat_completions(
                 model=args.model,
                 messages=messages,
@@ -186,6 +207,9 @@ async def main() -> None:
 
             # Tool calls
             if mm.tool_calls:
+                used_jira = False
+                used_files = False
+                used_kb = False
                 messages.append({"role": "assistant", "content": mm.content, "tool_calls": [
                     {
                         "id": tc.id,
@@ -197,8 +221,8 @@ async def main() -> None:
 
                 for tc in mm.tool_calls:
                     fq = tool_map.fc_to_fq.get(tc.name)
-                    log.info("tool_call name=%s fq=%s call_id=%s", tc.name, fq, tc.id)
-                    tool_calls_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "arguments": tc.arguments_json})
+                    log.info("tool_call name=%s fq=%s call_id=%s phase=%s", tc.name, fq, tc.id, phase_state.phase)
+                    tool_calls_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "arguments": tc.arguments_json, "phase": phase_state.phase})
                     if not fq:
                         error_msg = {"error": f"unknown tool: {tc.name}"}
                         log.error("tool_error unknown_tool name=%s", tc.name)
@@ -208,11 +232,35 @@ async def main() -> None:
                             tool_args = json.loads(tc.arguments_json) if tc.arguments_json.strip() else {}
                             if not isinstance(tool_args, dict):
                                 raise ValueError("tool arguments must be an object")
-                            log.info("tool_exec name=%s fq=%s args=%s", tc.name, fq, tool_args)
-                            tool_out = await agent.call_tool(fq, tool_args)
-                            # Log truncated result for debugging (redacted, DEBUG only)
-                            log.info("tool_result name=%s fq=%s len=%d", tc.name, fq, len(tool_out))
-                            log.debug("tool_result_content name=%s fq=%s content=%s", tc.name, fq, _redact(tool_out[:1000]))
+                            family = tool_family(tc.name)
+                            budget_guard = check_budget(phase_state.phase, phase_usage, family)
+                            if not budget_guard.allowed:
+                                log.warning("tool_blocked budget name=%s fq=%s family=%s phase=%s", tc.name, fq, family, phase_state.phase)
+                                tool_out = json.dumps({"error": budget_guard.message, "guard": budget_guard.reason})
+                            else:
+                                repeat_guard = check_repeat_guard(phase_state.phase, step, family, tc.name, tool_args, tool_history)
+                                if not repeat_guard.allowed:
+                                    log.warning("tool_blocked repeat name=%s fq=%s family=%s phase=%s", tc.name, fq, family, phase_state.phase)
+                                    tool_out = json.dumps({"error": repeat_guard.message, "guard": repeat_guard.reason})
+                                else:
+                                    log.info("tool_exec name=%s fq=%s family=%s phase=%s args=%s", tc.name, fq, family, phase_state.phase, tool_args)
+                                    tool_out = await agent.call_tool(fq, tool_args)
+                                    record_tool_use(phase_usage, family)
+                                    record_call(tool_history, phase_state.phase, step, family, tc.name, tool_args)
+                                    if family == "jira":
+                                        used_jira = True
+                                    elif family == "files":
+                                        used_files = True
+                                        seen_files = True
+                                    elif family == "kb":
+                                        used_kb = True
+                                        seen_kb = True
+                                    # Log truncated result for debugging (redacted, DEBUG only)
+                                    log.info("tool_result name=%s fq=%s len=%d", tc.name, fq, len(tool_out))
+                                    log.debug("tool_result_content name=%s fq=%s content=%s", tc.name, fq, _redact(tool_out[:1000]))
+                                    lowered = tool_out.lower()
+                                    if any(tok in lowered for tok in ["kernel bug", "call trace", "bug at", "oops", "panic", "fatal"]):
+                                        seen_failure_signal = True
                         except Exception as exc:
                             log.error("tool_error name=%s fq=%s error=%s", tc.name, fq, exc)
                             if workflow.tools.include_traceback:
@@ -220,12 +268,12 @@ async def main() -> None:
                                 tool_out = json.dumps({"error": str(exc), "traceback": traceback.format_exc()})
                             else:
                                 tool_out = json.dumps({"error": str(exc)})
-                            
+
                             if workflow.tools.on_error == "abort":
                                 log.error("tool_error aborting name=%s error=%s", tc.name, exc)
                                 raise
 
-                    tool_results_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out})
+                    tool_results_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
 
                     messages.append({
                         "role": "tool",
@@ -233,6 +281,33 @@ async def main() -> None:
                         "name": tc.name,
                         "content": tool_out,
                     })
+
+                new_phase_state, advanced = advance_phase(
+                    phase_state,
+                    used_jira=used_jira,
+                    used_files=used_files,
+                    used_kb=used_kb,
+                    step=step,
+                )
+                if advanced:
+                    log.info("phase_advance from=%s to=%s step=%d", phase_state.phase, new_phase_state.phase, step)
+                    phase_state = new_phase_state
+                    phase_usage = {"jira": 0, "files": 0, "kb": 0}
+                if should_force_draft(
+                    phase_state,
+                    phase_usage,
+                    step,
+                    max_steps,
+                    seen_files=seen_files,
+                    seen_kb=seen_kb,
+                    seen_failure_signal=seen_failure_signal,
+                ):
+                    if not forced_draft_mode:
+                        log.info("forced_draft enabled phase=%s step=%d", phase_state.phase, step)
+                    forced_draft_mode = True
+                    if phase_state.phase != "draft_debug_steps":
+                        phase_state = PhaseState(phase="draft_debug_steps", phase_index=5, entered_step=step, notes=list(phase_state.notes))
+                        phase_usage = {"jira": 0, "files": 0, "kb": 0}
 
                 if dumper:
                     dumper.write_round(step, {
