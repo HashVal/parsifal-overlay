@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from .stdio_jsonrpc_server import StdioMcpServer, Tool
 
@@ -64,197 +65,12 @@ def _kb_root() -> Path:
     return _project_root() / "knowledge_base"
 
 
-def _line_indent(line: str) -> int:
-    return len(line) - len(line.lstrip(" "))
-
-
-def _strip_comment(line: str) -> str:
-    return line.rstrip("\n")
-
-
-def _parse_scalar(value: str) -> Any:
-    value = value.strip()
-    if value == "null":
-        return None
-    if value == "true":
-        return True
-    if value == "false":
-        return False
-    if value.startswith('"') and value.endswith('"') and len(value) >= 2:
-        return value[1:-1]
-    if value.startswith("'") and value.endswith("'") and len(value) >= 2:
-        return value[1:-1]
-    if re.fullmatch(r"-?\d+", value):
-        try:
-            return int(value)
-        except ValueError:
-            return value
-    if re.fullmatch(r"-?\d+\.\d+", value):
-        try:
-            return float(value)
-        except ValueError:
-            return value
-    if value.startswith("[") and value.endswith("]"):
-        inner = value[1:-1].strip()
-        if not inner:
-            return []
-        parts = [p.strip() for p in inner.split(",")]
-        return [_parse_scalar(p) for p in parts]
-    return value
-
-
-def _next_significant(lines: list[str], idx: int) -> tuple[int, str] | tuple[None, None]:
-    n = len(lines)
-    j = idx
-    while j < n:
-        raw = _strip_comment(lines[j])
-        if raw.strip() and not raw.lstrip().startswith("#"):
-            return j, raw
-        j += 1
-    return None, None
-
-
-def _parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, int]:
-    idx, first = _next_significant(lines, start)
-    if idx is None:
-        return {}, len(lines)
-    if _line_indent(first) < indent:
-        return {}, idx
-    if first.strip().startswith("- "):
-        return _parse_list(lines, idx, indent)
-    return _parse_mapping(lines, idx, indent)
-
-
-def _parse_list(lines: list[str], start: int, indent: int) -> tuple[list[Any], int]:
-    items: list[Any] = []
-    i = start
-    n = len(lines)
-    while i < n:
-        raw = _strip_comment(lines[i])
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            i += 1
-            continue
-        cur_indent = _line_indent(raw)
-        if cur_indent < indent:
-            break
-        stripped = raw.strip()
-        if not stripped.startswith("- "):
-            break
-        item_text = stripped[2:].strip()
-        if not item_text:
-            item, ni = _parse_block(lines, i + 1, indent + 2)
-            items.append(item)
-            i = ni
-            continue
-        if ":" in item_text and not item_text.startswith(('"', "'")):
-            key, rest = item_text.split(":", 1)
-            obj: dict[str, Any] = {}
-            key = key.strip()
-            rest = rest.strip()
-            if rest:
-                obj[key] = _parse_scalar(rest)
-                i += 1
-            else:
-                val, ni = _parse_block(lines, i + 1, indent + 4)
-                obj[key] = val
-                i = ni
-            while i < n:
-                peek = _strip_comment(lines[i])
-                if not peek.strip() or peek.lstrip().startswith("#"):
-                    i += 1
-                    continue
-                pindent = _line_indent(peek)
-                if pindent < indent + 2:
-                    break
-                pstrip = peek.strip()
-                if pindent == indent and pstrip.startswith("- "):
-                    break
-                if pindent == indent + 2 and ":" in pstrip and not pstrip.startswith("- "):
-                    k, rest2 = pstrip.split(":", 1)
-                    k = k.strip()
-                    rest2 = rest2.strip()
-                    if rest2 in ("|", ">"):
-                        text, ni = _parse_multiline(lines, i + 1, indent + 4, folded=(rest2 == ">"))
-                        obj[k] = text
-                        i = ni
-                    elif rest2:
-                        obj[k] = _parse_scalar(rest2)
-                        i += 1
-                    else:
-                        val2, ni = _parse_block(lines, i + 1, indent + 4)
-                        obj[k] = val2
-                        i = ni
-                    continue
-                break
-            items.append(obj)
-            continue
-        items.append(_parse_scalar(item_text))
-        i += 1
-    return items, i
-
-
-def _parse_multiline(lines: list[str], start: int, indent: int, *, folded: bool) -> tuple[str, int]:
-    out: list[str] = []
-    i = start
-    n = len(lines)
-    while i < n:
-        raw = _strip_comment(lines[i])
-        if not raw.strip():
-            out.append("")
-            i += 1
-            continue
-        cur_indent = _line_indent(raw)
-        if cur_indent < indent:
-            break
-        out.append(raw[indent:])
-        i += 1
-    if folded:
-        text = " ".join(part for part in out if part != "").strip()
-    else:
-        text = "\n".join(out).rstrip()
-    return text, i
-
-
-def _parse_mapping(lines: list[str], start: int, indent: int) -> tuple[dict[str, Any], int]:
-    data: dict[str, Any] = {}
-    i = start
-    n = len(lines)
-    while i < n:
-        raw = _strip_comment(lines[i])
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            i += 1
-            continue
-        cur_indent = _line_indent(raw)
-        if cur_indent < indent:
-            break
-        if cur_indent > indent:
-            break
-        stripped = raw.strip()
-        if ":" not in stripped:
-            i += 1
-            continue
-        key, rest = stripped.split(":", 1)
-        key = key.strip()
-        rest = rest.strip()
-        if rest in ("|", ">"):
-            text, ni = _parse_multiline(lines, i + 1, indent + 2, folded=(rest == ">"))
-            data[key] = text
-            i = ni
-        elif rest:
-            data[key] = _parse_scalar(rest)
-            i += 1
-        else:
-            val, ni = _parse_block(lines, i + 1, indent + 2)
-            data[key] = val
-            i = ni
-    return data, i
-
-
-def _parse_yaml_subset(text: str) -> dict[str, Any]:
-    lines = text.splitlines()
-    data, _ = _parse_mapping(lines, 0, 0)
+def _parse_yaml_file(path: Path) -> dict[str, Any]:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if data is None:
+        return {}
     if not isinstance(data, dict):
-        raise RuntimeError("top-level YAML content is not a mapping")
+        raise RuntimeError(f"top-level YAML content is not a mapping: {path}")
     return data
 
 
@@ -268,7 +84,7 @@ def _load_kb_objects() -> list[dict[str, Any]]:
         if not d.exists():
             continue
         for path in sorted(d.glob("*.yaml")):
-            obj = _parse_yaml_subset(path.read_text(encoding="utf-8"))
+            obj = _parse_yaml_file(path)
             obj["__path"] = str(path.relative_to(_project_root()))
             obj.setdefault("kind", kind)
             if obj.get("kind") != kind:
