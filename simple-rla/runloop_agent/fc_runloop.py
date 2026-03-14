@@ -119,6 +119,124 @@ def _guess_platforms_from_text(texts: list[str]) -> list[str]:
     return out
 
 
+def _strip_log_prefix(text: str) -> str:
+    text = (text or "").strip()
+    return re.sub(r"^\[[^\]]+\]\s*", "", text)
+
+
+def _extract_function_name(text: str) -> str:
+    text = _strip_log_prefix(text)
+    m = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\+[0-9A-Fa-fx]+/[0-9A-Fa-fx]+", text)
+    if m:
+        return m.group(1)
+    return text
+
+
+def _clip_json_chars(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit] + f"... [truncated {len(text) - limit} chars]"
+
+
+def _compact_log_extract_for_llm(data: dict[str, Any]) -> dict[str, Any]:
+    essential = data.get("essential") if isinstance(data.get("essential"), dict) else {}
+    fatal = data.get("fatal") if isinstance(data.get("fatal"), dict) else {}
+    errors = data.get("errors") if isinstance(data.get("errors"), dict) else {}
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    fatal_items = fatal.get("items") if isinstance(fatal.get("items"), list) else []
+    error_items = errors.get("items") if isinstance(errors.get("items"), list) else []
+
+    primary_headline = None
+    primary_trace_anchor = None
+    if fatal_items and isinstance(fatal_items[0], dict):
+        item0 = fatal_items[0]
+        if isinstance(item0.get("headline"), dict):
+            primary_headline = _strip_log_prefix(str(item0["headline"].get("text") or ""))
+        if isinstance(item0.get("trace_anchor"), dict):
+            primary_trace_anchor = _extract_function_name(str(item0["trace_anchor"].get("text") or ""))
+
+    top_errors: list[str] = []
+    for item in error_items[:2]:
+        if isinstance(item, dict):
+            text = _strip_log_prefix(str(item.get("text") or "")).strip()
+            if text:
+                top_errors.append(text)
+
+    return {
+        "path": data.get("path"),
+        "profile": data.get("profile"),
+        "essential": {
+            "kernel_version": _strip_log_prefix(str(essential.get("kernel_version") or "")),
+            "driver_hints": essential.get("driver_hints") if isinstance(essential.get("driver_hints"), list) else [],
+        },
+        "fatal": {
+            "count": fatal.get("count"),
+            "primary": {
+                "headline": primary_headline,
+                "trace_anchor": primary_trace_anchor,
+            },
+        },
+        "errors": {
+            "count": errors.get("count"),
+            "top": top_errors,
+        },
+        "summary": {
+            "dominant_failure_mode": summary.get("dominant_failure_mode"),
+            "primary_subsystems": summary.get("primary_subsystems") if isinstance(summary.get("primary_subsystems"), list) else [],
+        },
+    }
+
+
+def _compact_kb_ground_for_llm(data: dict[str, Any]) -> dict[str, Any]:
+    query_context = data.get("query_context") if isinstance(data.get("query_context"), dict) else {}
+    matched = data.get("matched_objects") if isinstance(data.get("matched_objects"), dict) else {}
+
+    compact_matches: list[dict[str, Any]] = []
+    for bucket_name, objects in matched.items():
+        if not isinstance(objects, list) or not objects:
+            continue
+        item = objects[0]
+        if not isinstance(item, dict):
+            continue
+        compact_matches.append({
+            "id": item.get("id"),
+            "kind": item.get("kind"),
+            "title": item.get("title"),
+            "summary": str(item.get("summary") or "").strip(),
+        })
+
+    return {
+        "query_context": {
+            "case_id": query_context.get("case_id"),
+            "platforms": query_context.get("platforms") if isinstance(query_context.get("platforms"), list) else [],
+            "subsystems": query_context.get("subsystems") if isinstance(query_context.get("subsystems"), list) else [],
+            "modes": query_context.get("modes") if isinstance(query_context.get("modes"), list) else [],
+        },
+        "matched_objects": compact_matches,
+        "focus_areas": data.get("focus_areas") if isinstance(data.get("focus_areas"), list) else [],
+        "open_questions": data.get("open_questions") if isinstance(data.get("open_questions"), list) else [],
+        "recommended_next_reads": data.get("recommended_next_reads") if isinstance(data.get("recommended_next_reads"), list) else [],
+    }
+
+
+def _compact_tool_output_for_llm(tool_name: str, tool_out: str) -> str:
+    try:
+        data = json.loads(tool_out)
+    except Exception:
+        return _clip_json_chars(tool_out, 1200)
+
+    if not isinstance(data, dict):
+        return _clip_json_chars(tool_out, 1200)
+
+    if tool_name == "files__log_extract_signatures":
+        compact = _compact_log_extract_for_llm(data)
+        return _clip_json_chars(json.dumps(compact, ensure_ascii=False), 1800)
+    if tool_name == "kb__kb_ground":
+        compact = _compact_kb_ground_for_llm(data)
+        return _clip_json_chars(json.dumps(compact, ensure_ascii=False), 1600)
+    return _clip_json_chars(tool_out, 2000)
+
+
 def _build_auto_kb_ground_args(jira_key: str, recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
     log_extract = None
     for item in reversed(recent_tool_results):
@@ -328,7 +446,8 @@ async def main() -> None:
             if forced_draft_mode:
                 if not messages or messages[-1].get("content") != FORCED_DRAFT_NUDGE:
                     messages.append({"role": "user", "content": FORCED_DRAFT_NUDGE})
-            log.info("step=%d/%d chat_completions phase=%s usage=%s forced_draft=%s", step, max_steps, phase_state.phase, phase_usage, forced_draft_mode)
+            payload_chars = sum(len(json.dumps(m, ensure_ascii=False)) for m in messages)
+            log.info("step=%d/%d chat_completions phase=%s usage=%s forced_draft=%s messages=%d payload_chars=%d", step, max_steps, phase_state.phase, phase_usage, forced_draft_mode, len(messages), payload_chars)
             try:
                 mm = chat_completions(
                     model=args.model,
@@ -445,11 +564,13 @@ async def main() -> None:
                     tool_results_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
                     recent_tool_results.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
 
+                    llm_tool_out = _compact_tool_output_for_llm(tc.name, tool_out)
+                    log.info("tool_result_compacted name=%s fq=%s raw_len=%d compact_len=%d", tc.name, fq, len(tool_out), len(llm_tool_out))
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
                         "name": tc.name,
-                        "content": tool_out,
+                        "content": llm_tool_out,
                     })
 
                 new_phase_state, advanced = advance_phase(
@@ -509,11 +630,13 @@ async def main() -> None:
                             log.error("auto_kb_ground failed error=%s", exc)
                         tool_results_dump.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
                         recent_tool_results.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
+                        llm_tool_out = _compact_tool_output_for_llm("kb__kb_ground", tool_out)
+                        log.info("tool_result_compacted name=%s fq=%s raw_len=%d compact_len=%d", "kb__kb_ground", "kb.kb_ground", len(tool_out), len(llm_tool_out))
                         messages.append({
                             "role": "tool",
                             "tool_call_id": synthetic_id,
                             "name": "kb__kb_ground",
-                            "content": tool_out,
+                            "content": llm_tool_out,
                         })
                 if should_force_draft(
                     phase_state,
