@@ -191,7 +191,7 @@ async def main() -> None:
         for step in range(1, max_steps + 1):
             if forced_draft_mode:
                 if not messages or messages[-1].get("content") != FORCED_DRAFT_NUDGE:
-                    messages.append({"role": "system", "content": FORCED_DRAFT_NUDGE})
+                    messages.append({"role": "user", "content": FORCED_DRAFT_NUDGE})
             log.info("step=%d/%d chat_completions phase=%s usage=%s forced_draft=%s", step, max_steps, phase_state.phase, phase_usage, forced_draft_mode)
             mm = chat_completions(
                 model=args.model,
