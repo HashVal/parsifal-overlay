@@ -3,12 +3,12 @@ kind: platform_note
 status: confirmed
 title: BIOS display mode semantics
 summary: >
-  Describes the BIOS knob `display mode` and defines the semantics of its three
+  Describes the BIOS knob "display mode" and defines the semantics of its three
   options: integrated mode, discrete mode, and hybrid mode.
 content: |
-  This note records the known semantics of the BIOS setting `display mode`.
+  This note records the known semantics of the BIOS setting "display mode".
 
-  `display mode` is a BIOS knob that controls which GPU devices are enabled
+  "display mode" is a BIOS knob that controls which GPU devices are enabled
   during BIOS initialization.
 
   The three currently known options are:
@@ -48,12 +48,12 @@ tags:
   - graphics-topology
 
 facts:
-  - BIOS provides a setting named `display mode`.
-  - `display mode` is a BIOS knob.
-  - `display mode` controls which GPU devices are enabled during BIOS initialization.
-  - `integrated mode` means BIOS enables only the integrated GPU during initialization.
-  - `discrete mode` means BIOS enables only the discrete GPU during initialization.
-  - `hybrid mode` means BIOS enables both the integrated GPU and the discrete GPU during initialization.
+  - "BIOS provides a setting named 'display mode'."
+  - "'display mode' is a BIOS knob."
+  - "'display mode' controls which GPU devices are enabled during BIOS initialization."
+  - "'integrated mode' means BIOS enables only the integrated GPU during initialization."
+  - "'discrete mode' means BIOS enables only the discrete GPU during initialization."
+  - "'hybrid mode' means BIOS enables both the integrated GPU and the discrete GPU during initialization."
 
 terminology:
   display_mode: >
