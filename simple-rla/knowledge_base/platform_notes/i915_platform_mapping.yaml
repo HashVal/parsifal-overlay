@@ -1,0 +1,142 @@
+id: platform-note-i915-platform-mapping
+kind: platform_note
+status: confirmed
+title: i915 platform mapping
+summary: >
+  Describes i915 as Intel's older-generation Linux DRM graphics driver and
+  records the current working platform mapping for i915-supported platforms.
+content: |
+  The i915 driver is Intel's older-generation Linux DRM graphics driver.
+
+  In the current working platform model, i915 supports earlier Intel graphics
+  platforms and remains the primary Linux graphics driver context for a wide
+  range of integrated and earlier graphics deployments.
+
+  The current working mapping includes:
+  - TGL
+  - ADL
+  - RPL
+  - MTL
+  - ARC
+
+  In this mapping:
+  - RPL is treated as an x86 CPU platform with integrated graphics
+  - TGL, ADL, RPL, and MTL are treated as platforms whose graphics support falls
+    into the i915-driver context
+  - ARC is also included in the current working i915 support model
+
+  This note is intended to guide case grounding and triage. When a case is
+  associated with one of the i915-mapped platforms, Linux graphics analysis
+  should primarily be framed in the i915-driver context rather than the xe-driver
+  context unless explicit evidence suggests otherwise.
+
+platforms:
+  - TGL
+  - ADL
+  - RPL
+  - MTL
+  - ARC
+
+subsystems:
+  - graphics
+  - drm
+
+drivers:
+  - i915
+
+device_types:
+  - igpu
+  - dgpu
+
+tags:
+  - intel
+  - i915
+  - drm
+  - linux-graphics
+  - driver-mapping
+  - TGL
+  - ADL
+  - RPL
+  - MTL
+  - ARC
+
+facts:
+  - i915 is Intel's older-generation Linux DRM graphics driver.
+  - In the current working platform model, i915 supports TGL, ADL, RPL, MTL, and ARC.
+  - RPL is treated as an x86 CPU platform with integrated graphics.
+  - TGL, ADL, RPL, and MTL are treated as platforms whose graphics support falls into the i915-driver context.
+  - ARC is included in the current working i915 support model.
+
+terminology:
+  i915: >
+    Intel's older-generation Linux DRM graphics driver in the current working
+    platform model.
+  TGL: >
+    A platform generation mapped to the i915-driver context in the current
+    working model.
+  ADL: >
+    A platform generation mapped to the i915-driver context in the current
+    working model.
+  RPL: >
+    An Intel x86 CPU platform with integrated graphics, mapped to the i915-driver
+    context in the current working model.
+  MTL: >
+    A platform generation mapped to the i915-driver context in the current
+    working model.
+  ARC: >
+    A platform family included in the current working i915 support model.
+
+constraints:
+  - Do not default i915-mapped platform analysis into the xe driver context unless platform evidence explicitly indicates a newer xe-mapped path.
+  - Keep platform identity and driver identity distinct, but preserve their mapping explicitly in KB objects.
+  - Treat the driver mapping as a grounding aid for Linux graphics analysis.
+
+analysis_notes:
+  - When a case carries platform signals such as TGL, ADL, RPL, MTL, or ARC, prefer i915-oriented platform and code knowledge.
+  - Use this mapping to guide which driver context should dominate initial triage and KB grounding.
+  - This note is about driver/platform mapping, not a final statement about root cause.
+
+signals:
+  - type: driver
+    value: i915
+  - type: platform
+    value: TGL
+  - type: platform
+    value: ADL
+  - type: platform
+    value: RPL
+  - type: platform
+    value: MTL
+  - type: platform
+    value: ARC
+  - type: device_type
+    value: igpu
+  - type: device_type
+    value: dgpu
+
+refs:
+  - type: term
+    value: i915
+  - type: term
+    value: TGL
+  - type: term
+    value: ADL
+  - type: term
+    value: RPL
+  - type: term
+    value: MTL
+  - type: term
+    value: ARC
+
+source:
+  system: knowledge_base
+  path: knowledge_base/platform_notes/i915_platform_mapping.yaml
+  author: draft
+  created_at: 2026-03-14T17:35:00+08:00
+  updated_at: 2026-03-14T17:35:00+08:00
+
+trust:
+  level: high
+  rationale: >
+    This note records explicit working knowledge about i915-platform mapping in
+    the current Intel Linux graphics debugging context.

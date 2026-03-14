@@ -1,0 +1,131 @@
+id: platform-note-xe-platform-mapping
+kind: platform_note
+status: confirmed
+title: xe platform mapping
+summary: >
+  Describes xe as Intel's newer-generation Linux DRM graphics driver and records
+  the current working platform mapping for xe-supported platforms.
+content: |
+  The xe driver is Intel's newer-generation Linux DRM graphics driver for newer
+  graphics platforms.
+
+  In the current working platform model, xe supports both newer discrete GPU
+  (dGPU) and integrated GPU (iGPU) platforms.
+
+  The current working mapping includes:
+  - BMG
+  - ARL
+  - LNL
+  - PTL
+
+  In this mapping:
+  - BMG is treated as a discrete GPU platform
+  - ARL, LNL, and PTL are treated as newer CPU/platform generations whose
+    graphics support falls into the xe-driver context
+
+  This note is intended to guide case grounding and triage. When a case is
+  associated with one of the xe-mapped platforms, Linux graphics analysis should
+  primarily be framed in the xe-driver context rather than the i915-driver
+  context.
+
+platforms:
+  - BMG
+  - ARL
+  - LNL
+  - PTL
+
+subsystems:
+  - graphics
+  - drm
+
+drivers:
+  - xe
+
+device_types:
+  - dgpu
+  - igpu
+
+tags:
+  - intel
+  - xe
+  - drm
+  - linux-graphics
+  - driver-mapping
+  - BMG
+  - ARL
+  - LNL
+  - PTL
+
+facts:
+  - xe is Intel's newer-generation Linux DRM graphics driver.
+  - In the current working platform model, xe supports both newer dGPU and iGPU platforms.
+  - The current working xe platform mapping includes BMG, ARL, LNL, and PTL.
+  - BMG is treated as a dGPU platform in this mapping.
+  - ARL, LNL, and PTL are treated as platforms whose graphics support falls into the xe-driver context.
+
+terminology:
+  xe: >
+    Intel's newer-generation Linux DRM graphics driver for newer graphics
+    platforms in the current working model.
+  BMG: >
+    BattleMage, treated as a discrete GPU platform in the xe-driver mapping.
+  ARL: >
+    A platform generation mapped to the xe-driver context in the current working
+    model.
+  LNL: >
+    A platform generation mapped to the xe-driver context in the current working
+    model.
+  PTL: >
+    A platform generation mapped to the xe-driver context in the current working
+    model.
+
+constraints:
+  - Do not default xe-mapped platform analysis into the i915 driver context.
+  - Keep platform identity and driver identity distinct, but preserve their mapping explicitly in KB objects.
+  - Treat the driver mapping as a grounding aid for Linux graphics analysis.
+
+analysis_notes:
+  - When a case carries platform signals such as BMG, ARL, LNL, or PTL, prefer xe-oriented platform and code knowledge.
+  - Use this mapping to guide which driver context should dominate initial triage and KB grounding.
+  - This note is about driver/platform mapping, not a final statement about root cause.
+
+signals:
+  - type: driver
+    value: xe
+  - type: platform
+    value: BMG
+  - type: platform
+    value: ARL
+  - type: platform
+    value: LNL
+  - type: platform
+    value: PTL
+  - type: device_type
+    value: dgpu
+  - type: device_type
+    value: igpu
+
+refs:
+  - type: term
+    value: xe
+  - type: term
+    value: BMG
+  - type: term
+    value: ARL
+  - type: term
+    value: LNL
+  - type: term
+    value: PTL
+
+source:
+  system: knowledge_base
+  path: knowledge_base/platform_notes/xe_platform_mapping.yaml
+  author: draft
+  created_at: 2026-03-14T17:35:00+08:00
+  updated_at: 2026-03-14T17:35:00+08:00
+
+trust:
+  level: high
+  rationale: >
+    This note records explicit working knowledge about xe-platform mapping in the
+    current Intel Linux graphics debugging context.
