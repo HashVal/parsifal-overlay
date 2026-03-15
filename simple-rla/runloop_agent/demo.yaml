@@ -21,7 +21,6 @@ phases:
       - id: summarize_case
         type: llm_step
         config:
-          model: gpt-5
           instruction: |
             Read the provided artifacts and return a JSON object with exactly these fields:
             - summary: a concise case summary string
