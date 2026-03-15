@@ -1,0 +1,37 @@
+# Unified runtime + MCP config for the workflow skeleton.
+# Environment variables can still override the values here.
+
+[runtime]
+model = "gpt-5"
+timeout_s = 90
+protocol_version = "2024-11-05"
+
+[openai]
+api_key = ""
+base_url = "https://api.openai.com/v1"
+
+[mcp]
+artifacts_root = "./artifacts/runloop"
+
+[mcp.servers.files]
+command = "python3"
+args = ["-m", "mcp_servers.file_tools_server"]
+
+[mcp.servers.files.env]
+FILE_TOOLS_ROOT = "./artifacts/runloop"
+FILE_TOOLS_MAX_FILE_BYTES = "8388608"
+
+[mcp.servers.kb]
+command = "python3"
+args = ["-m", "mcp_servers.kb_server"]
+
+[mcp.servers.jira]
+command = "python3"
+args = ["-m", "mcp_servers.jira_mcp_server_v2"]
+
+[mcp.servers.jira.env]
+JIRA_BASE_URL = ""
+JIRA_API_PREFIX = ""
+JIRA_AUTH = ""
+JIRA_TOKEN = ""
+JIRA_VERIFY_SSL = ""
