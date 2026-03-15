@@ -37,6 +37,40 @@ Current KB MCP tools (MVP skeleton):
 - `kb_search`
 - `kb_ground`
 
+## Step 5 possible failure reason artifacts
+
+The current `fc_runloop.py` now inserts an explicit Step 5 `provide_possible_failure_reason` phase after KB grounding and before provisional DEBUG_STEPS drafting.
+
+This phase:
+- consumes only previously prepared structured inputs:
+  - Jira context
+  - compacted artifact/signature pack
+  - compacted KB grounding pack
+- does not introduce new MCP tool calls by default
+- generates at most 3 ranked possible failure reasons
+- validates the generated JSON shape
+- allows one repair retry if the first output is structurally invalid
+
+Artifacts written into the run workspace root:
+
+```text
+step5_possible_failure_reason.json
+step5_possible_failure_reason.md
+step5_possible_failure_reason.compact.json
+```
+
+Artifact roles:
+- `step5_possible_failure_reason.json`
+  - full machine-readable artifact for dumps, tests, and downstream inspection
+- `step5_possible_failure_reason.md`
+  - human-readable rendering of the same Step 5 result
+- `step5_possible_failure_reason.compact.json`
+  - compact LLM-facing artifact intended to be the primary input for subsequent DEBUG_STEPS drafting
+
+Compact-consumption policy:
+- the later DEBUG_STEPS phase should prefer the compact Step 5 artifact over re-consuming broad raw Jira/signature/KB payloads
+- this is intended to reduce context growth and preserve a hypothesis-first drafting path
+
 ## Workflow Configuration
 
 The agent behavior is defined in `workflow.yaml` (configurable via `--workflow`):

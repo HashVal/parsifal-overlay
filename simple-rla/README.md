@@ -62,3 +62,10 @@ Recent Jira auth updates:
 - Current KB design notes are documented in `mcp_servers/kb_tools.md`.
 - `kb_ground` is intended to build a lightweight grounding package for a case: aggregation is allowed, but over-reasoning is intentionally avoided.
 - KB matching now also includes a lightweight platform taxonomy step so generic platform notes (for example `generic_x86_platforms`) can still be matched from more specific case platform labels (for example `BMG`).
+- The current fc-based runloop now includes an explicit Step 5 `provide_possible_failure_reason` phase between KB grounding and provisional DEBUG_STEPS drafting.
+- Step 5 writes three run-workspace artifacts:
+  - `step5_possible_failure_reason.json`
+  - `step5_possible_failure_reason.md`
+  - `step5_possible_failure_reason.compact.json`
+- The full JSON/Markdown artifacts are intended for dumps, review, and human inspection.
+- The compact JSON artifact is intended as the primary LLM-facing input to the subsequent DEBUG_STEPS drafting phase.
