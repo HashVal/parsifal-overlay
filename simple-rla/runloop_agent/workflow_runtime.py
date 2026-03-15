@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -104,6 +105,9 @@ class PhaseTransition:
     notes: list[str] = field(default_factory=list)
 
 
+log = logging.getLogger("simple_rla.workflow_runtime")
+
+
 class WorkflowRuntime:
     """Workflow-level runtime kernel for Phase-Step orchestration.
 
@@ -119,6 +123,13 @@ class WorkflowRuntime:
         self._phase_map = {phase.phase_id: phase for phase in spec.phases}
         if len(self._phase_map) != len(spec.phases):
             raise ValueError("workflow spec contains duplicate phase ids")
+        log.info(
+            "workflow.init id=%s phases=%s start=%s terminals=%s",
+            spec.workflow_id,
+            [phase.phase_id for phase in spec.phases],
+            spec.start_phase_id or spec.phases[0].phase_id,
+            list(spec.terminal_phase_ids),
+        )
 
     def start(self, initial_artifacts: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> WorkflowRunState:
         start_phase_id = self.spec.start_phase_id or self.spec.phases[0].phase_id
@@ -134,6 +145,13 @@ class WorkflowRuntime:
         for phase in self.spec.phases:
             state.phase_states[phase.phase_id] = PhaseState(phase_id=phase.phase_id)
         state.phase_states[start_phase_id].status = PhaseStatus.RUNNING
+        log.info(
+            "workflow.start id=%s start_phase=%s initial_artifacts=%s metadata_keys=%s",
+            state.workflow_id,
+            start_phase_id,
+            sorted(state.global_artifacts.keys()),
+            sorted(state.metadata.keys()),
+        )
         return state
 
     def run(self, initial_artifacts: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> WorkflowRunState:
@@ -152,6 +170,14 @@ class WorkflowRuntime:
         phase_state = state.phase_states[phase.phase_id]
         phase_state.status = PhaseStatus.RUNNING
         steps = phase.steps()
+        log.info(
+            "phase.start workflow=%s phase=%s step_count=%d rollback_count=%d budget=%s",
+            state.workflow_id,
+            phase.phase_id,
+            len(steps),
+            phase_state.rollback_count,
+            phase.tool_budget(),
+        )
         while phase_state.status == PhaseStatus.RUNNING:
             if phase_state.step_index >= len(steps):
                 if phase.phase_exit_check(phase_state):
@@ -174,6 +200,16 @@ class WorkflowRuntime:
             state.current_step_id = step.step_id
             result = self.run_step(phase, step, state)
             transition = self.resolve_step_transition(phase, step, result, state)
+            log.info(
+                "step.transition workflow=%s phase=%s step=%s status=%s exit_ready=%s action=%s reason=%s",
+                state.workflow_id,
+                phase.phase_id,
+                step.step_id,
+                result.status.value,
+                result.exit_ready,
+                transition.action,
+                transition.reason,
+            )
             self.handle_step_result(phase, step, result, transition, state)
 
     def run_step(self, phase: BasePhase, step: BaseStep, state: WorkflowRunState) -> StepResult:
@@ -181,8 +217,28 @@ class WorkflowRuntime:
         phase_state.step_attempts[step.step_id] = phase_state.step_attempts.get(step.step_id, 0) + 1
         state.total_steps_executed += 1
         ctx = self.build_step_context(phase, step, state)
+        log.info(
+            "step.start workflow=%s phase=%s step=%s attempt=%d input_keys=%s transition_source=%s",
+            state.workflow_id,
+            phase.phase_id,
+            step.step_id,
+            ctx.attempt,
+            sorted(ctx.inputs.keys()),
+            state.transition_input.source,
+        )
         result = step.run(ctx)
-        return step.mark_exit_ready(result, ctx)
+        result = step.mark_exit_ready(result, ctx)
+        log.info(
+            "step.end workflow=%s phase=%s step=%s attempt=%d status=%s exit_ready=%s produced_artifacts=%s",
+            state.workflow_id,
+            phase.phase_id,
+            step.step_id,
+            ctx.attempt,
+            result.status.value,
+            result.exit_ready,
+            sorted(result.produced_artifacts.keys()),
+        )
+        return result
 
     def build_step_context(self, phase: BasePhase, step: BaseStep, state: WorkflowRunState) -> StepContext:
         phase_state = state.phase_states[phase.phase_id]
@@ -303,12 +359,27 @@ class WorkflowRuntime:
 
     def build_phase_handoff(self, phase: BasePhase, phase_state: PhaseState) -> PhaseCheckpoint:
         checkpoint = phase.finalize_phase(phase_state)
+        log.info(
+            "phase.handoff phase=%s status=%s compact_keys=%s step_outputs=%s",
+            phase.phase_id,
+            checkpoint.status.value,
+            sorted(checkpoint.compact_bundle.keys()),
+            sorted(checkpoint.step_outputs.keys()),
+        )
         if self.spec.checkpoint_policy.store_step_compact_outputs:
             for step_id, compact in checkpoint.compact_bundle.items():
                 pass
         return checkpoint
 
     def finalize_workflow(self, state: WorkflowRunState) -> WorkflowCheckpoint:
+        log.info(
+            "workflow.finalize id=%s status=%s current_phase=%s errors=%d artifacts=%s",
+            state.workflow_id,
+            state.status.value,
+            state.current_phase_id,
+            len(state.errors),
+            sorted(state.global_artifacts.keys()),
+        )
         return WorkflowCheckpoint(
             workflow_id=state.workflow_id,
             status=state.status,
@@ -320,6 +391,14 @@ class WorkflowRuntime:
         )
 
     def _apply_phase_transition(self, phase: BasePhase, state: WorkflowRunState, transition: PhaseTransition) -> None:
+        log.info(
+            "phase.transition workflow=%s phase=%s action=%s next=%s reason=%s",
+            state.workflow_id,
+            phase.phase_id,
+            transition.action,
+            transition.next_phase_id,
+            transition.reason,
+        )
         if transition.action == "advance_to_next_phase":
             next_phase_id = transition.next_phase_id
             if next_phase_id is None:

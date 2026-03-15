@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -208,7 +209,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Phase-Step workflow runtime demo")
     parser.add_argument("--config", default=str(Path(__file__).with_name("demo.yaml")), help="Path to demo yaml")
     parser.add_argument("--initial-artifact", action="append", default=[], help="Extra initial artifact in key=value form")
+    parser.add_argument("--log-level", default="INFO", help="DEBUG|INFO|WARNING|ERROR")
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=getattr(logging, str(args.log_level).upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    log = logging.getLogger("simple_rla.workflow_demo")
 
     demo = load_demo_yaml(args.config)
     spec = build_workflow_spec(demo)
@@ -220,9 +228,22 @@ def main() -> None:
         key, value = item.split("=", 1)
         initial_artifacts[key] = value
 
+    log.info(
+        "workflow_demo.start config=%s workflow_id=%s initial_artifacts=%s",
+        args.config,
+        spec.workflow_id,
+        sorted(initial_artifacts.keys()),
+    )
     runtime = WorkflowRuntime(spec)
     state = runtime.run(initial_artifacts=initial_artifacts, metadata={"entry": "workflow_demo.py"})
     checkpoint = runtime.finalize_workflow(state)
+    log.info(
+        "workflow_demo.done workflow_id=%s status=%s current_phase=%s errors=%d",
+        spec.workflow_id,
+        state.status.value,
+        state.current_phase_id,
+        len(state.errors),
+    )
 
     print("=== WORKFLOW STATUS ===")
     print(state.status.value)
