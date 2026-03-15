@@ -58,6 +58,10 @@ class LLMStep(BaseStep):
                 step_id=self.step_id,
                 status=StepStatus.INVALID,
                 output=response.text,
+                messages=[
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": response.text},
+                ],
                 diagnostics={
                     "raw_model_output": response.text,
                     "parse_ok": False,
@@ -75,6 +79,10 @@ class LLMStep(BaseStep):
             status=status,
             output=parse_result.parsed,
             compact_output=parse_result.parsed,
+            messages=[
+                {"role": "user", "content": prompt},
+                {"role": "assistant", "content": response.text},
+            ],
             produced_artifacts={f"artifact:{self.step_id}": parse_result.parsed},
             diagnostics={
                 "raw_model_output": response.text,

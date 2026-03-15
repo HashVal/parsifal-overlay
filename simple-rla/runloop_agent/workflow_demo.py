@@ -11,6 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from runloop_agent.runtime_config import apply_runtime_config, load_runtime_config
+from runloop_agent.workflow_dump import default_dump_dir, dump_workflow_run
 from runloop_agent.workflow_loader import load_workflow
 from runloop_agent.workflow_runtime import WorkflowRuntime
 
@@ -19,6 +20,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Phase-Step workflow runtime demo")
     parser.add_argument("--config", default=str(Path(__file__).with_name("demo.yaml")), help="Path to demo yaml")
     parser.add_argument("--runtime-config", default=None, help="Path to runtime toml config")
+    parser.add_argument("--dump", nargs="?", const="__DEFAULT__", default=None, help="Dump run artifacts to dir (default: ./artifacts/runloop/<workflow>/<timestamp>)")
     parser.add_argument("--initial-artifact", action="append", default=[], help="Extra initial artifact in key=value form")
     parser.add_argument("--log-level", default="INFO", help="DEBUG|INFO|WARNING|ERROR")
     args = parser.parse_args()
@@ -50,6 +52,13 @@ def main() -> None:
     runtime = WorkflowRuntime(spec)
     state = runtime.run(initial_artifacts=initial_artifacts, metadata={"entry": "workflow_demo.py"})
     checkpoint = runtime.finalize_workflow(state)
+
+    dump_path = None
+    if args.dump is not None:
+        dump_path = default_dump_dir(spec.workflow_id) if args.dump == "__DEFAULT__" else args.dump
+        dump_root = dump_workflow_run(dump_path, state, checkpoint)
+        log.info("workflow_demo.dump path=%s", str(dump_root))
+
     log.info(
         "workflow_demo.done workflow_id=%s status=%s current_phase=%s errors=%d",
         spec.workflow_id,
