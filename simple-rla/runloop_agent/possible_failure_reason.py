@@ -151,10 +151,47 @@ def _coerce_json_object(raw_text: str) -> dict[str, Any]:
     return data
 
 
+def _alias_first(obj: dict[str, Any], keys: list[str], default: Any = None) -> Any:
+    for key in keys:
+        if key in obj and obj[key] is not None:
+            return obj[key]
+    return default
+
+
+def _ensure_listish(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if value is None:
+        return []
+    return [value]
+
+
+def _normalize_case_context_aliases(case_context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "case_id": _alias_first(case_context, ["case_id"]),
+        "platforms": _ensure_listish(_alias_first(case_context, ["platforms", "platform"])),
+        "modes": _ensure_listish(_alias_first(case_context, ["modes", "mode"])),
+        "drivers_involved": _ensure_listish(_alias_first(case_context, ["drivers_involved", "drivers", "driver"])),
+    }
+
+
+def _normalize_reason_aliases(obj: dict[str, Any]) -> dict[str, Any]:
+    out = dict(obj)
+    if "title" not in out:
+        alt = _alias_first(out, ["reason", "name"])
+        if alt is not None:
+            out["title"] = alt
+    if "reason_chain" not in out:
+        alt = _alias_first(out, ["reason_chain", "chain", "mechanism", "failure_reason", "description", "reason"])
+        if alt is not None:
+            out["reason_chain"] = alt
+    return out
+
+
 def validate_possible_failure_reason(raw: str | dict[str, Any]) -> dict[str, Any]:
     data = _coerce_json_object(raw) if isinstance(raw, str) else _require_dict(raw, "top-level")
 
-    case_context = _require_dict(data.get("case_context"), "case_context")
+    case_context = _normalize_case_context_aliases(_require_dict(data.get("case_context"), "case_context"))
     case_id = _require_str(case_context.get("case_id"), "case_context.case_id")
     platforms = _normalize_str_list(case_context.get("platforms", []), "case_context.platforms", max_items=8)
     modes = _normalize_str_list(case_context.get("modes", []), "case_context.modes", max_items=8)
@@ -169,7 +206,7 @@ def validate_possible_failure_reason(raw: str | dict[str, Any]) -> dict[str, Any
     normalized_reasons: list[dict[str, Any]] = []
     seen_ranks: set[int] = set()
     for idx, item in enumerate(reasons):
-        obj = _require_dict(item, f"possible_failure_reasons[{idx}]")
+        obj = _normalize_reason_aliases(_require_dict(item, f"possible_failure_reasons[{idx}]"))
         rank = obj.get("rank")
         if not isinstance(rank, int):
             raise PossibleFailureReasonValidationError(f"possible_failure_reasons[{idx}].rank must be an integer")

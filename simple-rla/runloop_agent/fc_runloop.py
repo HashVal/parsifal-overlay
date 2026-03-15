@@ -301,11 +301,41 @@ def _infer_jira_context(jira_key: str, recent_tool_results: list[dict[str, Any]]
 
 
 def _step5_prompt(input_pack: dict[str, Any]) -> str:
+    skeleton = {
+        "case_context": {
+            "case_id": input_pack.get("case_context", {}).get("case_id", ""),
+            "platforms": [],
+            "modes": [],
+            "drivers_involved": [],
+        },
+        "possible_failure_reasons": [
+            {
+                "rank": 1,
+                "confidence": "high",
+                "possible_rate": 0.75,
+                "title": "...",
+                "reason_chain": "...",
+                "factors": ["..."],
+                "supporting_evidence": {
+                    "jira": ["..."],
+                    "signature": ["..."],
+                    "kb": ["..."],
+                },
+                "unknowns": ["..."],
+            }
+        ],
+        "selection_hint": {
+            "primary_rank": 1,
+            "debug_steps_should_focus_on": 1,
+            "include_alternatives_if_primary_is_weak": False,
+        },
+    }
     return (
         "Generate possible failure reasons from the provided structured inputs.\n"
         "Return the final structured result as a JSON object wrapped inside <POSSIBLE_FAILURE_REASON_JSON> ... </POSSIBLE_FAILURE_REASON_JSON>.\n"
         "Anything outside that wrapper will be ignored, so ensure the wrapped JSON is complete and valid.\n"
-        "The wrapped JSON must use the exact top-level keys: case_context, possible_failure_reasons, selection_hint.\n"
+        "Use the following JSON skeleton exactly: keep all keys, only replace the values, and optionally add rank 2 or rank 3 items inside possible_failure_reasons.\n"
+        "Do not rename keys. Do not omit required keys. Do not invent alternative field names.\n"
         "Rules:\n"
         "- no more than 3 possible_failure_reasons\n"
         "- rank must start at 1 and be contiguous\n"
@@ -316,15 +346,47 @@ def _step5_prompt(input_pack: dict[str, Any]) -> str:
         "- selection_hint.primary_rank must be 1\n"
         "- selection_hint.debug_steps_should_focus_on must be 1\n"
         "- keep supporting_evidence concise\n\n"
+        f"Skeleton:\n{json.dumps(skeleton, ensure_ascii=False, indent=2)}\n\n"
         f"Input:\n{json.dumps(input_pack, ensure_ascii=False)}"
     )
 
 
 def _step5_repair_prompt(input_pack: dict[str, Any], invalid_output: str, error_text: str) -> str:
+    skeleton = {
+        "case_context": {
+            "case_id": input_pack.get("case_context", {}).get("case_id", ""),
+            "platforms": [],
+            "modes": [],
+            "drivers_involved": [],
+        },
+        "possible_failure_reasons": [
+            {
+                "rank": 1,
+                "confidence": "high",
+                "possible_rate": 0.75,
+                "title": "...",
+                "reason_chain": "...",
+                "factors": ["..."],
+                "supporting_evidence": {
+                    "jira": ["..."],
+                    "signature": ["..."],
+                    "kb": ["..."],
+                },
+                "unknowns": ["..."],
+            }
+        ],
+        "selection_hint": {
+            "primary_rank": 1,
+            "debug_steps_should_focus_on": 1,
+            "include_alternatives_if_primary_is_weak": False,
+        },
+    }
     return (
         "Repair the previous Step 5 output.\n"
         "Return the final structured result as a JSON object wrapped inside <POSSIBLE_FAILURE_REASON_JSON> ... </POSSIBLE_FAILURE_REASON_JSON>.\n"
         "Keep the same intended meaning if possible, but fix the structure.\n"
+        "Use the following JSON skeleton exactly: keep all keys, only replace the values, and optionally add rank 2 or rank 3 items inside possible_failure_reasons.\n"
+        "Do not rename keys. Do not omit required keys. Do not invent alternative field names.\n"
         "Requirements:\n"
         "- top-level keys: case_context, possible_failure_reasons, selection_hint\n"
         "- 1 to 3 possible_failure_reasons\n"
@@ -333,6 +395,7 @@ def _step5_repair_prompt(input_pack: dict[str, Any], invalid_output: str, error_
         "- complete mechanism candidates only\n"
         "- no markdown code fences around the final wrapped JSON\n\n"
         f"Validation error: {error_text}\n\n"
+        f"Skeleton:\n{json.dumps(skeleton, ensure_ascii=False, indent=2)}\n\n"
         f"Input:\n{json.dumps(input_pack, ensure_ascii=False)}\n\n"
         f"Invalid output:\n{invalid_output}"
     )
