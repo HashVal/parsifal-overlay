@@ -6,7 +6,8 @@ version: "1.0"
 
 description: |
   A runloop agent that fetches Jira issues, inspects available evidence with tools,
-  applies lightweight KB grounding, and produces provisional DEBUG_STEPS with key evidence and explicit unknowns.
+  applies lightweight KB grounding, generates ranked possible failure reasons,
+  and then produces provisional DEBUG_STEPS with key evidence and explicit unknowns.
 
 # LLM interaction configuration
 llm:
@@ -48,8 +49,13 @@ llm:
        - Do not use KB as a replacement for reasoning.
        - Do not turn KB grounding into a broad research phase.
 
-    5. Provisional DEBUG_STEPS
-       - Produce a minimal useful debugging plan with hypotheses, concrete next steps, and unknowns.
+    5. Possible failure reasons
+       - Generate no more than 3 ranked possible failure reasons.
+       - Each reason must be a complete mechanism candidate, not a fragment.
+       - Use only the current Jira context, artifact signatures, and KB grounding.
+
+    6. Provisional DEBUG_STEPS
+       - Produce a minimal useful debugging plan from the primary possible failure reason, with concrete next steps and unknowns.
        - Stop once the draft is structurally sufficient.
 
     Guidance for tool usage:
@@ -78,7 +84,8 @@ llm:
     2. collect only the most useful Jira facts and necessary attachments
     3. inspect artifacts to extract the primary failure signature and supporting signals
     4. perform one lightweight KB grounding pass after key signals are available
-    5. produce a minimal useful provisional DEBUG_STEPS draft
+    5. generate ranked possible failure reasons
+    6. produce a minimal useful provisional DEBUG_STEPS draft from the primary reason
 
     Important constraints:
     - do not aim for a final RCA
@@ -86,8 +93,10 @@ llm:
     - do not over-explain intermediate reasoning
     - do not skip KB grounding when artifact inspection has already identified a plausible primary failure path and step budget still allows it
     - keep KB grounding lightweight and targeted rather than exploratory
+    - after KB grounding, generate no more than 3 ranked possible failure reasons before drafting DEBUG_STEPS
+    - use the primary possible failure reason as the main input to provisional DEBUG_STEPS
     - if information is missing, record it under unknowns instead of continuing open-ended search
-    - once you have enough evidence plus one lightweight KB grounding pass, produce the provisional DEBUG_STEPS draft
+    - once you have enough evidence, one lightweight KB grounding pass, and ranked possible failure reasons, produce the provisional DEBUG_STEPS draft
   
   # Message to send when no jira_key is provided
   default_message: |

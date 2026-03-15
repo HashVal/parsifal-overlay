@@ -9,6 +9,7 @@ PHASE_CASE_IDENTIFICATION = "case_identification"
 PHASE_EVIDENCE_COLLECTION = "evidence_collection"
 PHASE_ARTIFACT_INSPECTION = "artifact_inspection"
 PHASE_KB_GROUNDING = "kb_grounding"
+PHASE_POSSIBLE_FAILURE_REASON = "possible_failure_reason"
 PHASE_DRAFT_DEBUG_STEPS = "draft_debug_steps"
 PHASE_DONE = "done"
 
@@ -17,6 +18,7 @@ PHASE_ORDER = [
     PHASE_EVIDENCE_COLLECTION,
     PHASE_ARTIFACT_INSPECTION,
     PHASE_KB_GROUNDING,
+    PHASE_POSSIBLE_FAILURE_REASON,
     PHASE_DRAFT_DEBUG_STEPS,
     PHASE_DONE,
 ]
@@ -26,6 +28,7 @@ PHASE_TOOL_BUDGETS: dict[str, dict[str, int]] = {
     PHASE_EVIDENCE_COLLECTION: {"jira": 4, "files": 0, "kb": 0},
     PHASE_ARTIFACT_INSPECTION: {"jira": 1, "files": 4, "kb": 0},
     PHASE_KB_GROUNDING: {"jira": 0, "files": 0, "kb": 1},
+    PHASE_POSSIBLE_FAILURE_REASON: {"jira": 0, "files": 0, "kb": 0},
     PHASE_DRAFT_DEBUG_STEPS: {"jira": 0, "files": 0, "kb": 0},
     PHASE_DONE: {"jira": 0, "files": 0, "kb": 0},
 }
@@ -38,6 +41,7 @@ class PhaseState:
     entered_step: int = 1
     notes: list[str] = field(default_factory=list)
     kb_grounding_attempted: bool = False
+    possible_failure_reason_ready: bool = False
 
 
 @dataclass(frozen=True)
@@ -209,17 +213,20 @@ def advance_phase(
     cur = phase_state.phase
     nxt = cur
     kb_grounding_attempted = phase_state.kb_grounding_attempted
+    possible_failure_reason_ready = phase_state.possible_failure_reason_ready
     if cur == PHASE_CASE_IDENTIFICATION and used_jira:
         nxt = PHASE_EVIDENCE_COLLECTION
     elif cur == PHASE_EVIDENCE_COLLECTION and (downloaded_text_attachment or used_files):
         nxt = PHASE_ARTIFACT_INSPECTION
     elif cur == PHASE_ARTIFACT_INSPECTION and seen_failure_signal:
         if seen_kb or kb_grounding_attempted:
-            nxt = PHASE_DRAFT_DEBUG_STEPS
+            nxt = PHASE_POSSIBLE_FAILURE_REASON
         else:
             nxt = PHASE_KB_GROUNDING
     elif cur == PHASE_KB_GROUNDING:
         kb_grounding_attempted = True
+        nxt = PHASE_POSSIBLE_FAILURE_REASON
+    elif cur == PHASE_POSSIBLE_FAILURE_REASON and possible_failure_reason_ready:
         nxt = PHASE_DRAFT_DEBUG_STEPS
     if nxt == cur:
         return phase_state, False
@@ -229,6 +236,7 @@ def advance_phase(
         entered_step=step,
         notes=list(phase_state.notes),
         kb_grounding_attempted=kb_grounding_attempted,
+        possible_failure_reason_ready=possible_failure_reason_ready,
     ), True
 
 
@@ -250,13 +258,15 @@ def should_force_draft(
             return False
     if phase_state.phase == PHASE_KB_GROUNDING and not phase_state.kb_grounding_attempted and remaining_steps > 0:
         return False
+    if phase_state.phase == PHASE_POSSIBLE_FAILURE_REASON and not phase_state.possible_failure_reason_ready and remaining_steps > 0:
+        return False
     if remaining_steps <= 1:
         return True
     budgets = PHASE_TOOL_BUDGETS.get(phase_state.phase, {})
     for family, budget in budgets.items():
         if budget > 0 and phase_usage.get(family, 0) >= budget:
             return True
-    if seen_files and seen_failure_signal and (seen_kb or phase_state.kb_grounding_attempted):
+    if seen_files and seen_failure_signal and (seen_kb or phase_state.kb_grounding_attempted) and phase_state.possible_failure_reason_ready:
         return True
     return False
 

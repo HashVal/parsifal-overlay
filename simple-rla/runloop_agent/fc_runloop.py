@@ -34,6 +34,13 @@ from runloop_agent.runloop_control import (
     tool_family,
 )
 from runloop_agent.workspace import create_run_workspace, write_workspace_meta, workspace_env, utc_now_iso
+from runloop_agent.possible_failure_reason import (
+    PossibleFailureReasonValidationError,
+    build_step5_input,
+    compact_possible_failure_reason,
+    validate_possible_failure_reason,
+    write_possible_failure_reason_artifacts,
+)
 
 
 _NAME_SAFE = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -235,6 +242,96 @@ def _compact_tool_output_for_llm(tool_name: str, tool_out: str) -> str:
         compact = _compact_kb_ground_for_llm(data)
         return _clip_json_chars(json.dumps(compact, ensure_ascii=False), 1600)
     return _clip_json_chars(tool_out, 2000)
+
+
+def _latest_compacted_signature_pack(recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in reversed(recent_tool_results):
+        if item.get("name") != "files__log_extract_signatures":
+            continue
+        output = item.get("output")
+        if not isinstance(output, str):
+            continue
+        try:
+            parsed = json.loads(output)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return _compact_log_extract_for_llm(parsed)
+    return {}
+
+
+def _latest_compacted_kb_pack(recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in reversed(recent_tool_results):
+        if item.get("name") != "kb__kb_ground":
+            continue
+        output = item.get("output")
+        if not isinstance(output, str):
+            continue
+        try:
+            parsed = json.loads(output)
+        except Exception:
+            continue
+        if isinstance(parsed, dict):
+            return _compact_kb_ground_for_llm(parsed)
+    return {}
+
+
+def _infer_jira_context(jira_key: str, recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in reversed(recent_tool_results):
+        if item.get("name") != "jira__jira_get":
+            continue
+        output = item.get("output")
+        if not isinstance(output, str):
+            continue
+        try:
+            parsed = json.loads(output)
+        except Exception:
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        return {
+            "case_id": jira_key,
+            "title": parsed.get("summary") or jira_key,
+            "platforms": parsed.get("labels") if isinstance(parsed.get("labels"), list) else [],
+            "components": parsed.get("components") if isinstance(parsed.get("components"), list) else [],
+            "status": parsed.get("status"),
+        }
+    return {"case_id": jira_key, "title": jira_key}
+
+
+def _step5_prompt(input_pack: dict[str, Any]) -> str:
+    return (
+        "Generate possible failure reasons from the provided structured inputs.\n"
+        "Return JSON only with the exact required top-level keys: case_context, possible_failure_reasons, selection_hint.\n"
+        "Rules:\n"
+        "- no more than 3 possible_failure_reasons\n"
+        "- rank must start at 1 and be contiguous\n"
+        "- confidence must be high, medium, or low\n"
+        "- possible_rate must be within [0.0, 1.0]\n"
+        "- each reason must be a complete mechanism candidate, not a fragment\n"
+        "- use only the provided Jira context, signature pack, and KB pack\n"
+        "- selection_hint.primary_rank must be 1\n"
+        "- selection_hint.debug_steps_should_focus_on must be 1\n"
+        "- keep supporting_evidence concise\n\n"
+        f"Input:\n{json.dumps(input_pack, ensure_ascii=False)}"
+    )
+
+
+def _step5_repair_prompt(input_pack: dict[str, Any], invalid_output: str, error_text: str) -> str:
+    return (
+        "Repair the previous Step 5 output and return JSON only.\n"
+        "Keep the same intended meaning if possible, but fix the structure.\n"
+        "Requirements:\n"
+        "- top-level keys: case_context, possible_failure_reasons, selection_hint\n"
+        "- 1 to 3 possible_failure_reasons\n"
+        "- confidence in {high, medium, low}\n"
+        "- possible_rate in [0.0, 1.0]\n"
+        "- complete mechanism candidates only\n"
+        "- no markdown, no prose outside JSON\n\n"
+        f"Validation error: {error_text}\n\n"
+        f"Input:\n{json.dumps(input_pack, ensure_ascii=False)}\n\n"
+        f"Invalid output:\n{invalid_output}"
+    )
 
 
 def _build_auto_kb_ground_args(jira_key: str, recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -441,8 +538,154 @@ async def main() -> None:
         seen_kb = False
         seen_failure_signal = False
         recent_tool_results: list[dict[str, Any]] = []
+        step5_full_artifact: dict[str, Any] | None = None
+        step5_compact_artifact: dict[str, Any] | None = None
 
         for step in range(1, max_steps + 1):
+            if phase_state.phase == "possible_failure_reason" and not phase_state.possible_failure_reason_ready:
+                jira_context = _infer_jira_context(args.jira_key, recent_tool_results)
+                signature_pack = _latest_compacted_signature_pack(recent_tool_results)
+                kb_pack = _latest_compacted_kb_pack(recent_tool_results)
+                step5_input = build_step5_input(
+                    jira_key=args.jira_key,
+                    jira_context=jira_context,
+                    signature_pack=signature_pack,
+                    kb_pack=kb_pack,
+                )
+                raw_outputs: list[str] = []
+                validation_error = ""
+                validated: dict[str, Any] | None = None
+                for attempt in range(1, 3):
+                    step5_messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": _step5_prompt(step5_input) if attempt == 1 else _step5_repair_prompt(step5_input, raw_outputs[-1], validation_error)},
+                    ]
+                    try:
+                        mm_step5 = chat_completions(
+                            model=args.model,
+                            messages=step5_messages,
+                            tools=[],
+                            tool_choice="none",
+                            temperature=workflow.llm.temperature,
+                            timeout_s=workflow.execution.request_timeout_s,
+                        )
+                    except Exception as exc:
+                        log.error("step5_generation_failed step=%d attempt=%d error=%s", step, attempt, exc)
+                        if dumper:
+                            dumper.write_round(step, {
+                                "iteration": step,
+                                "timestamp": utc_now_iso(),
+                                "model": args.model,
+                                "status": "incomplete",
+                                "failure_stage": "possible_failure_reason_request",
+                                "error_type": type(exc).__name__,
+                                "error_message": str(exc),
+                                "phase": phase_state.phase,
+                                "phase_usage": phase_usage,
+                                "forced_draft_mode": forced_draft_mode,
+                                "system_prompt": system_prompt,
+                                "user_prompt": step5_messages[-1]["content"],
+                                "messages": step5_messages,
+                                "tools": [],
+                                "tool_calls": [],
+                                "tool_results": [],
+                                "response": None,
+                            })
+                        raise
+                    raw_text = mm_step5.content or ""
+                    raw_outputs.append(raw_text)
+                    try:
+                        validated = validate_possible_failure_reason(raw_text)
+                        break
+                    except PossibleFailureReasonValidationError as exc:
+                        validation_error = str(exc)
+                        log.warning("step5_validation_failed step=%d attempt=%d error=%s", step, attempt, validation_error)
+                        validated = None
+                if validated is None:
+                    log.error("step5_failed step=%d error=%s", step, validation_error)
+                    if dumper:
+                        dumper.write_round(step, {
+                            "iteration": step,
+                            "timestamp": utc_now_iso(),
+                            "model": args.model,
+                            "status": "incomplete",
+                            "failure_stage": "possible_failure_reason_validation",
+                            "error_type": "PossibleFailureReasonValidationError",
+                            "error_message": validation_error,
+                            "phase": phase_state.phase,
+                            "phase_usage": phase_usage,
+                            "forced_draft_mode": forced_draft_mode,
+                            "system_prompt": system_prompt,
+                            "user_prompt": _step5_prompt(step5_input),
+                            "messages": [],
+                            "tools": [],
+                            "tool_calls": [],
+                            "tool_results": [],
+                            "response": {"raw_outputs": raw_outputs},
+                        })
+                    raise SystemExit(f"step5 possible failure reason failed: {validation_error}")
+
+                compact = compact_possible_failure_reason(validated)
+                artifact_paths = write_possible_failure_reason_artifacts(ws, validated, compact)
+                step5_full_artifact = validated
+                step5_compact_artifact = compact
+                phase_state = PhaseState(
+                    phase=phase_state.phase,
+                    phase_index=phase_state.phase_index,
+                    entered_step=phase_state.entered_step,
+                    notes=list(phase_state.notes),
+                    kb_grounding_attempted=phase_state.kb_grounding_attempted,
+                    possible_failure_reason_ready=True,
+                )
+                messages.append({
+                    "role": "assistant",
+                    "content": "Generated ranked possible failure reasons and stored full/compact Step 5 artifacts.",
+                })
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Use this compact possible-failure-reason artifact as the primary input for subsequent DEBUG_STEPS drafting.\n"
+                        "Do not re-expand broad Jira/signature/KB context unless a specific gap requires it.\n\n"
+                        f"{json.dumps(step5_compact_artifact, ensure_ascii=False)}"
+                    ),
+                })
+                log.info("step5_ready step=%d json=%s compact=%s markdown=%s", step, artifact_paths["json"], artifact_paths["compact_json"], artifact_paths["markdown"])
+                new_phase_state, advanced = advance_phase(
+                    phase_state,
+                    used_jira=False,
+                    used_files=False,
+                    used_kb=False,
+                    downloaded_text_attachment=False,
+                    seen_failure_signal=seen_failure_signal,
+                    seen_kb=seen_kb,
+                    step=step,
+                )
+                if advanced:
+                    log.info("phase_advance from=%s to=%s step=%d", phase_state.phase, new_phase_state.phase, step)
+                    phase_state = new_phase_state
+                    phase_usage = {"jira": 0, "files": 0, "kb": 0}
+                if dumper:
+                    dumper.write_round(step, {
+                        "iteration": step,
+                        "timestamp": utc_now_iso(),
+                        "model": args.model,
+                        "system_prompt": system_prompt,
+                        "user_prompt": _step5_prompt(step5_input),
+                        "llm_response": raw_outputs[-1] if raw_outputs else None,
+                        "messages": messages,
+                        "tools": [],
+                        "tool_calls": [],
+                        "tool_results": [],
+                        "response": {
+                            "step5_input": step5_input,
+                            "raw_outputs": raw_outputs,
+                            "validated": validated,
+                            "compact": compact,
+                            "artifact_paths": artifact_paths,
+                        },
+                    })
+                continue
+
             if forced_draft_mode:
                 if not messages or messages[-1].get("content") != FORCED_DRAFT_NUDGE:
                     messages.append({"role": "user", "content": FORCED_DRAFT_NUDGE})
@@ -616,6 +859,7 @@ async def main() -> None:
                                 entered_step=phase_state.entered_step,
                                 notes=list(phase_state.notes),
                                 kb_grounding_attempted=True,
+                                possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
                             )
                             log.info("auto_kb_ground result len=%d", len(tool_out))
                         except Exception as exc:
@@ -626,6 +870,7 @@ async def main() -> None:
                                 entered_step=phase_state.entered_step,
                                 notes=list(phase_state.notes),
                                 kb_grounding_attempted=True,
+                                possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
                             )
                             log.error("auto_kb_ground failed error=%s", exc)
                         tool_results_dump.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
@@ -653,10 +898,11 @@ async def main() -> None:
                     if phase_state.phase != "draft_debug_steps":
                         phase_state = PhaseState(
                             phase="draft_debug_steps",
-                            phase_index=5,
+                            phase_index=6,
                             entered_step=step,
                             notes=list(phase_state.notes),
                             kb_grounding_attempted=phase_state.kb_grounding_attempted,
+                            possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
                         )
                         phase_usage = {"jira": 0, "files": 0, "kb": 0}
 
@@ -697,6 +943,7 @@ async def main() -> None:
                     entered_step=phase_state.entered_step,
                     notes=list(phase_state.notes),
                     kb_grounding_attempted=True,
+                    possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
                 )
                 if dumper:
                     dumper.write_round(step, {
