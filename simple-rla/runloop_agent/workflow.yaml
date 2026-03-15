@@ -56,6 +56,8 @@ llm:
 
     6. Provisional DEBUG_STEPS
        - Produce a minimal useful debugging plan from the primary possible failure reason, with concrete next steps and unknowns.
+       - Treat the selected primary reason as binding input: expand it, do not replace it.
+       - Ensure the plan covers the primary factors, main gaps, and key support from Step 5.
        - Stop once the draft is structurally sufficient.
 
     Guidance for tool usage:

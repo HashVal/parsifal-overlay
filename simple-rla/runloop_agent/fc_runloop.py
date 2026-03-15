@@ -454,6 +454,48 @@ def _step5_repair_prompt(input_pack: dict[str, Any], invalid_output: str, error_
     )
 
 
+def _build_step6_binding_input(compact_artifact: dict[str, Any]) -> dict[str, Any]:
+    primary = compact_artifact.get("primary_reason") if isinstance(compact_artifact, dict) else {}
+    if not isinstance(primary, dict):
+        primary = {}
+    return {
+        "selected_primary_reason": {
+            "title": primary.get("title"),
+            "confidence": primary.get("confidence"),
+            "possible_rate": primary.get("possible_rate"),
+            "reason_chain": primary.get("reason_chain"),
+            "factors": primary.get("factors") if isinstance(primary.get("factors"), list) else [],
+            "key_support": primary.get("key_support") if isinstance(primary.get("key_support"), list) else [],
+            "main_gaps": primary.get("main_gaps") if isinstance(primary.get("main_gaps"), list) else [],
+        },
+        "drafting_requirements": {
+            "must_preserve_reason_chain": True,
+            "must_not_replace_primary_reason": True,
+            "must_cover_factors": primary.get("factors") if isinstance(primary.get("factors"), list) else [],
+            "unknowns_should_come_from": primary.get("main_gaps") if isinstance(primary.get("main_gaps"), list) else [],
+            "why_this_path_first_should_use": primary.get("key_support") if isinstance(primary.get("key_support"), list) else [],
+        },
+    }
+
+
+def _step6_binding_prompt(binding_input: dict[str, Any]) -> str:
+    return (
+        "You are now in DEBUG_STEPS drafting phase.\n"
+        "Use the selected primary reason as a binding input, not optional context.\n"
+        "Do not replace it with a new explanation.\n"
+        "Do not broaden the problem into a generic crash template.\n\n"
+        "Mapping rules:\n"
+        "- Problem framing must be derived from selected_primary_reason.title\n"
+        "- Most likely direction must be derived from selected_primary_reason.reason_chain\n"
+        "- Concrete DEBUG_STEPS must cover selected_primary_reason.factors\n"
+        "- Unknowns must come primarily from selected_primary_reason.main_gaps\n"
+        "- Why this path first must be justified from selected_primary_reason.key_support\n"
+        "- Prefer factor-driven steps over generic panic/debug boilerplate\n"
+        "- Do not introduce a new main hypothesis unless the selected primary reason is internally contradictory\n\n"
+        f"Binding input:\n{json.dumps(binding_input, ensure_ascii=False, indent=2)}"
+    )
+
+
 def _build_auto_kb_ground_args(jira_key: str, recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
     log_extract = None
     for item in reversed(recent_tool_results):
@@ -660,6 +702,7 @@ async def main() -> None:
         recent_tool_results: list[dict[str, Any]] = []
         step5_full_artifact: dict[str, Any] | None = None
         step5_compact_artifact: dict[str, Any] | None = None
+        step6_binding_prompt_sent = False
 
         for step in range(1, max_steps + 1):
             if phase_state.phase == "possible_failure_reason" and not phase_state.possible_failure_reason_ready:
@@ -831,6 +874,10 @@ async def main() -> None:
                     })
                 continue
 
+            if phase_state.phase == "draft_debug_steps" and step5_compact_artifact and not step6_binding_prompt_sent:
+                step6_binding = _build_step6_binding_input(step5_compact_artifact)
+                messages.append({"role": "user", "content": _step6_binding_prompt(step6_binding)})
+                step6_binding_prompt_sent = True
             if forced_draft_mode:
                 if not messages or messages[-1].get("content") != FORCED_DRAFT_NUDGE:
                     messages.append({"role": "user", "content": FORCED_DRAFT_NUDGE})
