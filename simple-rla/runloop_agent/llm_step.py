@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import os
+
 from runloop_agent.model_provider import ModelProvider, OpenAIError
 from runloop_agent.output_parser import parse_model_output
 from runloop_agent.prompt_builder import build_step_prompt
@@ -28,7 +30,7 @@ class LLMStep(BaseStep):
                 error=StepErrorInfo(code="invalid_prompt", message="llm step prompt must be text"),
             )
 
-        model = str(self.spec.metadata.get("model") or "").strip()
+        model = str(self.spec.metadata.get("model") or os.environ.get("OPENAI_MODEL") or "").strip()
         if not model:
             return StepResult(
                 step_id=self.step_id,
@@ -41,7 +43,7 @@ class LLMStep(BaseStep):
                 model=model,
                 prompt=prompt,
                 response_schema=self.spec.metadata.get("output_schema"),
-                timeout_s=int(self.spec.metadata.get("timeout_s") or 90),
+                timeout_s=int(self.spec.metadata.get("timeout_s") or os.environ.get("OPENAI_TIMEOUT_S") or 90),
             )
         except OpenAIError as exc:
             return StepResult(

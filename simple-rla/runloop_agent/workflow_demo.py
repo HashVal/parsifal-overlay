@@ -10,6 +10,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from runloop_agent.runtime_config import apply_runtime_config, load_runtime_config
 from runloop_agent.workflow_loader import load_workflow
 from runloop_agent.workflow_runtime import WorkflowRuntime
 
@@ -17,6 +18,7 @@ from runloop_agent.workflow_runtime import WorkflowRuntime
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the Phase-Step workflow runtime demo")
     parser.add_argument("--config", default=str(Path(__file__).with_name("demo.yaml")), help="Path to demo yaml")
+    parser.add_argument("--runtime-config", default=None, help="Path to runtime toml config")
     parser.add_argument("--initial-artifact", action="append", default=[], help="Extra initial artifact in key=value form")
     parser.add_argument("--log-level", default="INFO", help="DEBUG|INFO|WARNING|ERROR")
     args = parser.parse_args()
@@ -26,6 +28,9 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
     log = logging.getLogger("simple_rla.workflow_demo")
+
+    runtime_cfg = load_runtime_config(args.runtime_config)
+    apply_runtime_config(runtime_cfg)
 
     spec = load_workflow(args.config)
 
