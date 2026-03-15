@@ -38,6 +38,7 @@ from runloop_agent.possible_failure_reason import (
     PossibleFailureReasonValidationError,
     build_step5_input,
     compact_possible_failure_reason,
+    extract_possible_failure_reason_json_text,
     validate_possible_failure_reason,
     write_possible_failure_reason_artifacts,
 )
@@ -302,7 +303,9 @@ def _infer_jira_context(jira_key: str, recent_tool_results: list[dict[str, Any]]
 def _step5_prompt(input_pack: dict[str, Any]) -> str:
     return (
         "Generate possible failure reasons from the provided structured inputs.\n"
-        "Return JSON only with the exact required top-level keys: case_context, possible_failure_reasons, selection_hint.\n"
+        "Return the final structured result as a JSON object wrapped inside <POSSIBLE_FAILURE_REASON_JSON> ... </POSSIBLE_FAILURE_REASON_JSON>.\n"
+        "Anything outside that wrapper will be ignored, so ensure the wrapped JSON is complete and valid.\n"
+        "The wrapped JSON must use the exact top-level keys: case_context, possible_failure_reasons, selection_hint.\n"
         "Rules:\n"
         "- no more than 3 possible_failure_reasons\n"
         "- rank must start at 1 and be contiguous\n"
@@ -319,7 +322,8 @@ def _step5_prompt(input_pack: dict[str, Any]) -> str:
 
 def _step5_repair_prompt(input_pack: dict[str, Any], invalid_output: str, error_text: str) -> str:
     return (
-        "Repair the previous Step 5 output and return JSON only.\n"
+        "Repair the previous Step 5 output.\n"
+        "Return the final structured result as a JSON object wrapped inside <POSSIBLE_FAILURE_REASON_JSON> ... </POSSIBLE_FAILURE_REASON_JSON>.\n"
         "Keep the same intended meaning if possible, but fix the structure.\n"
         "Requirements:\n"
         "- top-level keys: case_context, possible_failure_reasons, selection_hint\n"
@@ -327,7 +331,7 @@ def _step5_repair_prompt(input_pack: dict[str, Any], invalid_output: str, error_
         "- confidence in {high, medium, low}\n"
         "- possible_rate in [0.0, 1.0]\n"
         "- complete mechanism candidates only\n"
-        "- no markdown, no prose outside JSON\n\n"
+        "- no markdown code fences around the final wrapped JSON\n\n"
         f"Validation error: {error_text}\n\n"
         f"Input:\n{json.dumps(input_pack, ensure_ascii=False)}\n\n"
         f"Invalid output:\n{invalid_output}"
@@ -553,6 +557,7 @@ async def main() -> None:
                     kb_pack=kb_pack,
                 )
                 raw_outputs: list[str] = []
+                extracted_outputs: list[str] = []
                 validation_error = ""
                 validated: dict[str, Any] | None = None
                 for attempt in range(1, 3):
@@ -595,11 +600,34 @@ async def main() -> None:
                     raw_text = mm_step5.content or ""
                     raw_outputs.append(raw_text)
                     try:
-                        validated = validate_possible_failure_reason(raw_text)
+                        extracted_text = extract_possible_failure_reason_json_text(raw_text)
+                    except PossibleFailureReasonValidationError as exc:
+                        extracted_text = ""
+                        extracted_outputs.append(extracted_text)
+                        validation_error = str(exc)
+                        log.warning(
+                            "step5_extraction_failed step=%d attempt=%d error=%s raw_preview=%s",
+                            step,
+                            attempt,
+                            validation_error,
+                            _redact(raw_text[:400]),
+                        )
+                        validated = None
+                        continue
+                    extracted_outputs.append(extracted_text)
+                    try:
+                        validated = validate_possible_failure_reason(extracted_text)
                         break
                     except PossibleFailureReasonValidationError as exc:
                         validation_error = str(exc)
-                        log.warning("step5_validation_failed step=%d attempt=%d error=%s", step, attempt, validation_error)
+                        log.warning(
+                            "step5_validation_failed step=%d attempt=%d error=%s raw_preview=%s extracted_preview=%s",
+                            step,
+                            attempt,
+                            validation_error,
+                            _redact(raw_text[:400]),
+                            _redact(extracted_text[:400]),
+                        )
                         validated = None
                 if validated is None:
                     log.error("step5_failed step=%d error=%s", step, validation_error)
@@ -621,7 +649,7 @@ async def main() -> None:
                             "tools": [],
                             "tool_calls": [],
                             "tool_results": [],
-                            "response": {"raw_outputs": raw_outputs},
+                            "response": {"raw_outputs": raw_outputs, "extracted_outputs": extracted_outputs},
                         })
                     raise SystemExit(f"step5 possible failure reason failed: {validation_error}")
 
@@ -679,6 +707,7 @@ async def main() -> None:
                         "response": {
                             "step5_input": step5_input,
                             "raw_outputs": raw_outputs,
+                            "extracted_outputs": extracted_outputs,
                             "validated": validated,
                             "compact": compact,
                             "artifact_paths": artifact_paths,

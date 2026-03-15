@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from runloop_agent.workspace import RunWorkspace
@@ -84,9 +83,67 @@ def _normalize_possible_rate(value: Any) -> float:
     return rate
 
 
+def extract_possible_failure_reason_json_text(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if not text:
+        raise PossibleFailureReasonValidationError("invalid JSON: empty model output")
+
+    # Fast path: already valid JSON object text.
+    if text.startswith("{") and text.endswith("}"):
+        return text
+
+    # Try fenced/tag-wrapped JSON first.
+    tag_pairs = [
+        ("<POSSIBLE_FAILURE_REASON_JSON>", "</POSSIBLE_FAILURE_REASON_JSON>"),
+        ("```json", "```"),
+        ("```", "```"),
+    ]
+    for start_tag, end_tag in tag_pairs:
+        start = text.find(start_tag)
+        if start == -1:
+            continue
+        start += len(start_tag)
+        end = text.find(end_tag, start)
+        if end == -1:
+            continue
+        candidate = text[start:end].strip()
+        if candidate.startswith("{") and candidate.endswith("}"):
+            return candidate
+
+    # Fallback: extract the first balanced top-level JSON object.
+    start = text.find("{")
+    if start == -1:
+        raise PossibleFailureReasonValidationError("invalid JSON: no JSON object found in model output")
+
+    depth = 0
+    in_string = False
+    escape = False
+    for idx in range(start, len(text)):
+        ch = text[idx]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : idx + 1]
+
+    raise PossibleFailureReasonValidationError("invalid JSON: unterminated JSON object in model output")
+
+
 def _coerce_json_object(raw_text: str) -> dict[str, Any]:
+    extracted = extract_possible_failure_reason_json_text(raw_text)
     try:
-        data = json.loads(raw_text)
+        data = json.loads(extracted)
     except Exception as exc:
         raise PossibleFailureReasonValidationError(f"invalid JSON: {exc}") from exc
     if not isinstance(data, dict):
