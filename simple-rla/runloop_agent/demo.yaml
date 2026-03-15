@@ -1,25 +1,33 @@
-workflow_id: demo_workflow
-start_phase: phase_a
+workflow_id: demo_llm_workflow
+start_phase: phase1
 terminal_phases:
-  - phase_b
+  - phase1
 
 phases:
-  - id: phase_a
-    type: demo_phase
-    next_phase: phase_b
-    max_rollbacks: 1
-    max_step_attempts: 2
-    steps:
-      - id: step_a1
-        type: echo_step
-      - id: step_a2
-        type: incomplete_once_step
-
-  - id: phase_b
-    type: demo_phase
-    terminal: true
+  - id: phase1
+    type: standard_phase
     max_rollbacks: 0
     max_step_attempts: 1
     steps:
-      - id: step_b1
-        type: artifact_report_step
+      - id: seed_input
+        type: deterministic_step
+        config:
+          artifact_key: jira_context
+          artifact_value:
+            title: demo issue
+            summary: system fails to boot after firmware update
+            platform: BMG
+
+      - id: summarize_case
+        type: llm_step
+        config:
+          model: gpt-5
+          instruction: |
+            Read the provided artifacts and return a JSON object with exactly these fields:
+            - summary: a concise case summary string
+            - confidence: one of high, medium, low
+          output_schema:
+            type: object
+            required:
+              - summary
+              - confidence
