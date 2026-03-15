@@ -24,6 +24,7 @@ import json
 import sys
 import traceback
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any, Callable, Dict, Optional
 
 
@@ -35,8 +36,14 @@ class Tool:
     handler: Callable[[dict], Any]
 
 
+def _json_default(obj: Any) -> Any:
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
+
 def _json(obj: Any) -> str:
-    return json.dumps(obj, ensure_ascii=False)
+    return json.dumps(obj, ensure_ascii=False, default=_json_default)
 
 
 def _ok_text(text: str) -> dict:
