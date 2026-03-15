@@ -96,6 +96,59 @@ def _redact(text: str) -> str:
     return out
 
 
+def _clean_model_output_for_consumption(text: str | None) -> str:
+    raw = (text or "")
+    if not raw:
+        return ""
+
+    cleaned = raw
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"</?think>", "", cleaned, flags=re.IGNORECASE)
+
+    lines = cleaned.splitlines()
+    prefix_markers = (
+        "The user has provided",
+        "Let me structure",
+        "I should now",
+        "I will now",
+        "I'll keep this",
+        "Good, KB grounding",
+        "Let me get the full details",
+    )
+    section_markers = (
+        "Problem framing:",
+        "Most likely direction:",
+        "Concrete DEBUG_STEPS:",
+        "Unknowns:",
+        "Why this path first:",
+        "## Problem Framing",
+        "## Most Likely Direction",
+        "## Concrete DEBUG_STEPS",
+        "## Unknowns",
+        "## Why This Path First",
+    )
+    start_idx = 0
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if any(stripped.startswith(marker) for marker in section_markers):
+            start_idx = idx
+            break
+    trimmed: list[str] = []
+    dropping_prefix = True
+    for line in lines[start_idx:]:
+        stripped = line.strip()
+        if dropping_prefix and (
+            not stripped or any(stripped.startswith(marker) for marker in prefix_markers)
+        ):
+            continue
+        dropping_prefix = False
+        trimmed.append(line)
+
+    cleaned = "\n".join(trimmed).strip()
+    cleaned = re.sub(r"^#\s+.*?(?:\n+)", "", cleaned, count=1, flags=re.MULTILINE)
+    return cleaned
+
+
 def _mcp_to_openai_tool_schema(tool_name_fc: str, spec) -> dict:
     # MCP inputSchema is already JSON Schema-ish.
     return {
@@ -819,6 +872,7 @@ async def main() -> None:
 
             tool_calls_dump = []
             tool_results_dump = []
+            consumable_content = _clean_model_output_for_consumption(mm.content)
 
             # Tool calls
             if mm.tool_calls:
@@ -826,7 +880,7 @@ async def main() -> None:
                 used_files = False
                 used_kb = False
                 downloaded_text_attachment = False
-                messages.append({"role": "assistant", "content": mm.content, "tool_calls": [
+                messages.append({"role": "assistant", "content": consumable_content, "tool_calls": [
                     {
                         "id": tc.id,
                         "type": "function",
@@ -1049,12 +1103,12 @@ async def main() -> None:
                         "tools": [t.get("function", {}).get("name") for t in openai_tools],
                         "tool_calls": [],
                         "tool_results": [],
-                        "response": {"content": mm.content, "tool_calls": [], "gated": "kb_grounding_exit_gate"},
+                        "response": {"content": mm.content, "cleaned_content": consumable_content, "tool_calls": [], "gated": "kb_grounding_exit_gate"},
                     })
                 continue
             if not no_tool_exit:
                 log.warning("exit_condition no_tool_calls disabled; exiting anyway")
-            log.info("step=%d final_response content_len=%d", step, len(mm.content or ""))
+            log.info("step=%d final_response content_len=%d cleaned_len=%d", step, len(mm.content or ""), len(consumable_content or ""))
             if dumper:
                 dumper.write_round(step, {
                     "iteration": step,
@@ -1067,10 +1121,10 @@ async def main() -> None:
                     "tools": [t.get("function", {}).get("name") for t in openai_tools],
                     "tool_calls": [],
                     "tool_results": [],
-                    "response": {"content": mm.content, "tool_calls": []},
+                    "response": {"content": mm.content, "cleaned_content": consumable_content, "tool_calls": []},
                 })
-            if mm.content:
-                print(mm.content)
+            if consumable_content:
+                print(consumable_content)
             else:
                 if workflow.output.print_raw_on_empty:
                     raw = {"role": mm.role, "content": mm.content, "tool_calls": []}
