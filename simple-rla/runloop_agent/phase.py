@@ -153,6 +153,5 @@ class BasePhase(ABC):
 
     def mark_step_result(self, state: PhaseState, result: StepResult) -> None:
         state.completed_step_results[result.step_id] = result
-        state.step_attempts[result.step_id] = state.step_attempts.get(result.step_id, 0) + 1
         if result.status == StepStatus.COMPLETED:
             state.step_index += 1

@@ -251,7 +251,7 @@ class WorkflowRuntime:
         return StepContext(
             phase_id=phase.phase_id,
             step_id=step.step_id,
-            attempt=phase_state.step_attempts.get(step.step_id, 0) + 1,
+            attempt=phase_state.step_attempts.get(step.step_id, 0),
             inputs=dict(state.global_artifacts),
             shared_state=phase_state.shared_state,
             available_artifacts=state.global_artifacts,
@@ -316,7 +316,6 @@ class WorkflowRuntime:
         if transition.action == "advance_to_next_step":
             return
         if transition.action == "rerun_same_step":
-            phase_state.step_index = max(phase_state.step_index - 1, 0)
             state.transition_input = TransitionInput(source="rerun", artifacts=dict(result.produced_artifacts), notes=[transition.reason])
             return
         if transition.action == "rollback_to_anchor_step":
