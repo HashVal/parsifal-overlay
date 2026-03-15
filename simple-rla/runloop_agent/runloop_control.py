@@ -208,6 +208,7 @@ def advance_phase(
     downloaded_text_attachment: bool,
     seen_failure_signal: bool,
     seen_kb: bool,
+    signature_pack_ready: bool,
     step: int,
 ) -> tuple[PhaseState, bool]:
     cur = phase_state.phase
@@ -218,14 +219,15 @@ def advance_phase(
         nxt = PHASE_EVIDENCE_COLLECTION
     elif cur == PHASE_EVIDENCE_COLLECTION and (downloaded_text_attachment or used_files):
         nxt = PHASE_ARTIFACT_INSPECTION
-    elif cur == PHASE_ARTIFACT_INSPECTION and seen_failure_signal:
+    elif cur == PHASE_ARTIFACT_INSPECTION and signature_pack_ready:
         if seen_kb or kb_grounding_attempted:
             nxt = PHASE_POSSIBLE_FAILURE_REASON
         else:
             nxt = PHASE_KB_GROUNDING
     elif cur == PHASE_KB_GROUNDING:
         kb_grounding_attempted = True
-        nxt = PHASE_POSSIBLE_FAILURE_REASON
+        if signature_pack_ready:
+            nxt = PHASE_POSSIBLE_FAILURE_REASON
     elif cur == PHASE_POSSIBLE_FAILURE_REASON and possible_failure_reason_ready:
         nxt = PHASE_DRAFT_DEBUG_STEPS
     if nxt == cur:

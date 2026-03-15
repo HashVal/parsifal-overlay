@@ -298,7 +298,7 @@ def _compact_tool_output_for_llm(tool_name: str, tool_out: str) -> str:
     return _clip_json_chars(tool_out, 2000)
 
 
-def _latest_compacted_signature_pack(recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
+def _latest_signature_pack(recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
     for item in reversed(recent_tool_results):
         if item.get("name") != "files__log_extract_signatures":
             continue
@@ -310,7 +310,37 @@ def _latest_compacted_signature_pack(recent_tool_results: list[dict[str, Any]]) 
         except Exception:
             continue
         if isinstance(parsed, dict):
-            return _compact_log_extract_for_llm(parsed)
+            return parsed
+    return {}
+
+
+def _signature_pack_is_ready(signature_pack: dict[str, Any] | None) -> bool:
+    if not isinstance(signature_pack, dict) or not signature_pack:
+        return False
+    summary = signature_pack.get("summary") if isinstance(signature_pack.get("summary"), dict) else {}
+    fatal = signature_pack.get("fatal") if isinstance(signature_pack.get("fatal"), dict) else {}
+    errors = signature_pack.get("errors") if isinstance(signature_pack.get("errors"), dict) else {}
+
+    primary_headline = summary.get("primary_headline")
+    if isinstance(primary_headline, str) and primary_headline.strip():
+        return True
+    primary_trace_anchor = summary.get("primary_trace_anchor")
+    if isinstance(primary_trace_anchor, str) and primary_trace_anchor.strip():
+        return True
+    if isinstance(fatal.get("count"), int) and fatal.get("count", 0) > 0:
+        return True
+    dominant_failure_mode = summary.get("dominant_failure_mode")
+    if isinstance(dominant_failure_mode, str) and dominant_failure_mode.strip():
+        return True
+    if isinstance(errors.get("items"), list) and len(errors.get("items") or []) > 0:
+        return True
+    return False
+
+
+def _latest_compacted_signature_pack(recent_tool_results: list[dict[str, Any]]) -> dict[str, Any]:
+    parsed = _latest_signature_pack(recent_tool_results)
+    if parsed:
+        return _compact_log_extract_for_llm(parsed)
     return {}
 
 
@@ -703,9 +733,33 @@ async def main() -> None:
         step5_full_artifact: dict[str, Any] | None = None
         step5_compact_artifact: dict[str, Any] | None = None
         step6_binding_prompt_sent = False
+        signature_pack_ready = False
 
         for step in range(1, max_steps + 1):
+            signature_pack = _latest_signature_pack(recent_tool_results)
+            signature_pack_ready = _signature_pack_is_ready(signature_pack)
+
             if phase_state.phase == "possible_failure_reason" and not phase_state.possible_failure_reason_ready:
+                if not signature_pack_ready:
+                    log.warning("step5_blocked_missing_signature step=%d phase=%s", step, phase_state.phase)
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Do not generate possible failure reasons yet. "
+                            "Artifact inspection is not complete because no reliable failure signature has been extracted. "
+                            "Use file-based artifact inspection to extract a reliable failure signature first."
+                        ),
+                    })
+                    phase_state = PhaseState(
+                        phase="artifact_inspection",
+                        phase_index=4,
+                        entered_step=step,
+                        notes=list(phase_state.notes),
+                        kb_grounding_attempted=phase_state.kb_grounding_attempted,
+                        possible_failure_reason_ready=False,
+                    )
+                    phase_usage = {"jira": 0, "files": 0, "kb": 0}
+                    continue
                 jira_context = _infer_jira_context(args.jira_key, recent_tool_results)
                 signature_pack = _latest_compacted_signature_pack(recent_tool_results)
                 kb_pack = _latest_compacted_kb_pack(recent_tool_results)
@@ -999,6 +1053,7 @@ async def main() -> None:
 
                     tool_results_dump.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
                     recent_tool_results.append({"name": tc.name, "fq": fq, "id": tc.id, "output": tool_out, "phase": phase_state.phase})
+                    signature_pack_ready = _signature_pack_is_ready(_latest_signature_pack(recent_tool_results))
 
                     llm_tool_out = _compact_tool_output_for_llm(tc.name, tool_out)
                     log.info("tool_result_compacted name=%s fq=%s raw_len=%d compact_len=%d", tc.name, fq, len(tool_out), len(llm_tool_out))
@@ -1017,6 +1072,7 @@ async def main() -> None:
                     downloaded_text_attachment=downloaded_text_attachment,
                     seen_failure_signal=seen_failure_signal,
                     seen_kb=seen_kb,
+                    signature_pack_ready=signature_pack_ready,
                     step=step,
                 )
                 if advanced:
@@ -1024,45 +1080,66 @@ async def main() -> None:
                     phase_state = new_phase_state
                     phase_usage = {"jira": 0, "files": 0, "kb": 0}
                     if phase_state.phase == "kb_grounding" and not seen_kb and not phase_state.kb_grounding_attempted:
-                        kb_args = _build_auto_kb_ground_args(args.jira_key, recent_tool_results)
-                        synthetic_id = f"auto-kb-ground-{step}"
-                        log.info(
-                            "auto_kb_ground triggered step=%d jira_key=%s platforms=%s subsystems=%s signals=%d",
-                            step,
-                            args.jira_key,
-                            ((kb_args.get("context") or {}).get("platforms") or []),
-                            ((kb_args.get("context") or {}).get("subsystems") or []),
-                            len(kb_args.get("signals") or []),
-                        )
-                        messages.append({
-                            "role": "assistant",
-                            "content": "Proceeding with one lightweight KB grounding pass based on the extracted failure signals.",
-                            "tool_calls": [{
-                                "id": synthetic_id,
-                                "type": "function",
-                                "function": {"name": "kb__kb_ground", "arguments": json.dumps(kb_args, ensure_ascii=False)},
-                            }],
-                        })
-                        try:
-                            tool_out = await agent.call_tool("kb.kb_ground", kb_args)
-                            seen_kb = True
-                            phase_state = PhaseState(
-                                phase=phase_state.phase,
-                                phase_index=phase_state.phase_index,
-                                entered_step=phase_state.entered_step,
-                                notes=list(phase_state.notes),
-                                kb_grounding_attempted=True,
-                                possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
-                            )
-                            log.info("auto_kb_ground result len=%d", len(tool_out))
-                        except Exception as exc:
-                            tool_out = json.dumps({"error": str(exc)})
-                            phase_state = PhaseState(
-                                phase=phase_state.phase,
-                                phase_index=phase_state.phase_index,
-                                entered_step=phase_state.entered_step,
-                                notes=list(phase_state.notes),
-                                kb_grounding_attempted=True,
+                        if not signature_pack_ready:
+                            log.info("auto_kb_ground skipped step=%d reason=signature_not_ready", step)
+                            messages.append({
+                                "role": "user",
+                                "content": (
+                                    "Do not perform KB grounding yet. "
+                                    "First finish artifact inspection and extract a reliable failure signature with file-based inspection."
+                                ),
+                            })
+                        else:
+                            kb_args = _build_auto_kb_ground_args(args.jira_key, recent_tool_results)
+                            synthetic_id = f"auto-kb-ground-{step}"
+                            if not (kb_args.get("signals") or []):
+                                log.info("auto_kb_ground skipped step=%d reason=no_signals", step)
+                                messages.append({
+                                    "role": "user",
+                                    "content": (
+                                        "Do not perform KB grounding yet. "
+                                        "The current artifact inspection did not produce usable failure signals. "
+                                        "Extract a reliable failure signature first."
+                                    ),
+                                })
+                            else:
+                                log.info(
+                                    "auto_kb_ground triggered step=%d jira_key=%s platforms=%s subsystems=%s signals=%d",
+                                    step,
+                                    args.jira_key,
+                                    ((kb_args.get("context") or {}).get("platforms") or []),
+                                    ((kb_args.get("context") or {}).get("subsystems") or []),
+                                    len(kb_args.get("signals") or []),
+                                )
+                                messages.append({
+                                    "role": "assistant",
+                                    "content": "Proceeding with one lightweight KB grounding pass based on the extracted failure signals.",
+                                    "tool_calls": [{
+                                        "id": synthetic_id,
+                                        "type": "function",
+                                        "function": {"name": "kb__kb_ground", "arguments": json.dumps(kb_args, ensure_ascii=False)},
+                                    }],
+                                })
+                                try:
+                                    tool_out = await agent.call_tool("kb.kb_ground", kb_args)
+                                    seen_kb = True
+                                    phase_state = PhaseState(
+                                        phase=phase_state.phase,
+                                        phase_index=phase_state.phase_index,
+                                        entered_step=phase_state.entered_step,
+                                        notes=list(phase_state.notes),
+                                        kb_grounding_attempted=True,
+                                        possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
+                                    )
+                                    log.info("auto_kb_ground result len=%d", len(tool_out))
+                                except Exception as exc:
+                                    tool_out = json.dumps({"error": str(exc)})
+                                    phase_state = PhaseState(
+                                        phase=phase_state.phase,
+                                        phase_index=phase_state.phase_index,
+                                        entered_step=phase_state.entered_step,
+                                        notes=list(phase_state.notes),
+                                        kb_grounding_attempted=True,
                                 possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
                             )
                             log.error("auto_kb_ground failed error=%s", exc)

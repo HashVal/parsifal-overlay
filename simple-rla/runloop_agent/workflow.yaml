@@ -40,8 +40,9 @@ llm:
 
     3. Artifact inspection
        - Extract the primary failure signature and a small set of supporting signals.
+       - Do not leave this phase until a reliable failure signature has been extracted from artifacts.
+       - In the current implementation, this normally means a successful structured signature extraction from file inspection.
        - Avoid repetitive file reads.
-       - Do not draft DEBUG_STEPS yet once the first plausible failure path appears.
 
     4. KB grounding
        - Perform one lightweight KB grounding pass after artifact inspection identifies a plausible primary failure path.
