@@ -1,0 +1,25 @@
+workflow_id: demo_workflow
+start_phase: phase_a
+terminal_phases:
+  - phase_b
+
+phases:
+  - id: phase_a
+    type: demo_phase
+    next_phase: phase_b
+    max_rollbacks: 1
+    max_step_attempts: 2
+    steps:
+      - id: step_a1
+        type: echo_step
+      - id: step_a2
+        type: incomplete_once_step
+
+  - id: phase_b
+    type: demo_phase
+    terminal: true
+    max_rollbacks: 0
+    max_step_attempts: 1
+    steps:
+      - id: step_b1
+        type: artifact_report_step
