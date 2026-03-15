@@ -1140,9 +1140,9 @@ async def main() -> None:
                                         entered_step=phase_state.entered_step,
                                         notes=list(phase_state.notes),
                                         kb_grounding_attempted=True,
-                                possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
-                            )
-                            log.error("auto_kb_ground failed error=%s", exc)
+                                        possible_failure_reason_ready=phase_state.possible_failure_reason_ready,
+                                    )
+                                    log.error("auto_kb_ground failed error=%s", exc)
                         tool_results_dump.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
                         recent_tool_results.append({"name": "kb__kb_ground", "fq": "kb.kb_ground", "id": synthetic_id, "output": tool_out, "phase": phase_state.phase, "auto": True})
                         llm_tool_out = _compact_tool_output_for_llm("kb__kb_ground", tool_out)
