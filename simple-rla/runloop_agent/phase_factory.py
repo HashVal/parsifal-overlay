@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from runloop_agent.mcp_client import McpClient
 from runloop_agent.phase import BasePhase, PhaseSpec, PhaseState
 from runloop_agent.step import BaseStep
 from runloop_agent.step_factory import build_step
@@ -37,7 +38,7 @@ class StandardPhase(BasePhase):
         return self._next_phase_id
 
 
-def build_phase(phase_cfg: dict[str, Any]) -> BasePhase:
+def build_phase(phase_cfg: dict[str, Any], *, mcp_client: McpClient | None = None) -> BasePhase:
     if not isinstance(phase_cfg, dict):
         raise ValueError(f"invalid phase config: {phase_cfg!r}")
 
@@ -53,7 +54,7 @@ def build_phase(phase_cfg: dict[str, Any]) -> BasePhase:
     if not isinstance(raw_steps, list) or not raw_steps:
         raise ValueError(f"phase '{phase_id}' must define a non-empty steps list")
 
-    steps = [build_step(step_cfg) for step_cfg in raw_steps]
+    steps = [build_step(step_cfg, mcp_client=mcp_client) for step_cfg in raw_steps]
     next_phase_id = str(phase_cfg.get("next_phase") or "").strip() or None
     max_rollbacks = int(phase_cfg.get("max_rollbacks", 0) or 0)
     max_step_attempts = int(phase_cfg.get("max_step_attempts", 1) or 1)

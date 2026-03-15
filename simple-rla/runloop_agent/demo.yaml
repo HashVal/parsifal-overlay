@@ -1,11 +1,12 @@
-workflow_id: demo_llm_workflow
+workflow_id: demo_llm_tool_workflow
 start_phase: phase1
 terminal_phases:
-  - phase1
+  - tool_phase
 
 phases:
   - id: phase1
     type: standard_phase
+    next_phase: tool_phase
     max_rollbacks: 0
     max_step_attempts: 1
     steps:
@@ -30,3 +31,25 @@ phases:
             required:
               - summary
               - confidence
+
+  - id: tool_phase
+    type: standard_phase
+    max_rollbacks: 0
+    max_step_attempts: 1
+    steps:
+      - id: inspect_workspace
+        type: llm_tool_step
+        config:
+          instruction: |
+            Use the available file tools to inspect the workspace artifacts and then return a JSON object with exactly these fields:
+            - observation: a concise description of what you inspected
+            - confidence: one of high, medium, low
+          allowed_tool_families:
+            - files
+          output_schema:
+            type: object
+            required:
+              - observation
+              - confidence
+          max_model_turns: 4
+          max_tool_calls: 4

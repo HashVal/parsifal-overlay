@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from runloop_agent.llm_step import LLMStep
+from runloop_agent.llm_step import LLMStep, LLMToolStep
+from runloop_agent.mcp_client import McpClient
 from runloop_agent.step import BaseStep, StepContext, StepResult, StepSpec, StepStatus
 
 
@@ -34,7 +35,7 @@ class DeterministicArtifactStep(BaseStep):
         return result.status == StepStatus.COMPLETED
 
 
-def build_step(step_cfg: dict[str, Any]) -> BaseStep:
+def build_step(step_cfg: dict[str, Any], *, mcp_client: McpClient | None = None) -> BaseStep:
     if not isinstance(step_cfg, dict):
         raise ValueError(f"invalid step config: {step_cfg!r}")
 
@@ -45,11 +46,21 @@ def build_step(step_cfg: dict[str, Any]) -> BaseStep:
 
     config = dict(step_cfg.get("config") or {})
     description = str(config.get("instruction") or step_cfg.get("description") or "").strip()
-    spec = StepSpec(step_id=step_id, description=description, metadata=config)
+    spec = StepSpec(
+        step_id=step_id,
+        description=description,
+        allowed_tool_families=tuple(str(x) for x in (config.get("allowed_tool_families") or [])),
+        allowed_tools=tuple(str(x) for x in (config.get("allowed_tools") or [])),
+        metadata=config,
+    )
 
     if step_type == "deterministic_step":
         return DeterministicArtifactStep(spec)
     if step_type == "llm_step":
         return LLMStep(spec)
+    if step_type == "llm_tool_step":
+        if mcp_client is None:
+            raise ValueError("llm_tool_step requires an initialized mcp_client")
+        return LLMToolStep(spec, mcp_client=mcp_client)
 
     raise ValueError(f"unknown step type: {step_type}")
