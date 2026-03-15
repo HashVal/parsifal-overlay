@@ -62,6 +62,8 @@ class LLMStep(BaseStep):
                     "raw_model_output": response.text,
                     "parse_ok": False,
                     "parse_error": parse_result.error,
+                    "parse_mode": parse_result.mode,
+                    "extracted_json_text": parse_result.extracted_text,
                 },
                 error=StepErrorInfo(code="parse_error", message=parse_result.error or "failed to parse model output"),
             )
@@ -77,6 +79,8 @@ class LLMStep(BaseStep):
             diagnostics={
                 "raw_model_output": response.text,
                 "parse_ok": True,
+                "parse_mode": parse_result.mode,
+                "extracted_json_text": parse_result.extracted_text,
                 "validation_errors": list(validation.errors),
                 "validation_warnings": list(validation.warnings),
             },
