@@ -78,6 +78,8 @@ def main() -> None:
         print(state.current_phase_id)
         print("=== CURRENT STEP ===")
         print(state.current_step_id)
+        print("=== INITIAL INPUTS ===")
+        print(json.dumps(initial_artifacts, ensure_ascii=False, indent=2, default=str))
         print("=== GLOBAL ARTIFACTS ===")
         print(json.dumps(state.global_artifacts, ensure_ascii=False, indent=2, default=str))
         print("=== PHASE CHECKPOINTS ===")

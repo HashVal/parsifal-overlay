@@ -19,20 +19,25 @@ def execute_tool_call(
 ) -> tuple[StepToolCall, list[dict[str, Any]]]:
     tool = registry.get(tool_name)
     if tool is None:
-        raise RuntimeError(f"unknown tool requested by model: {tool_name}")
+        raise RuntimeError(f"unknown tool requested: {tool_name}")
     ensure_tool_allowed(spec, tool)
 
     started = time.time()
     result = mcp_client.call_tool(tool_name, arguments)
     latency_ms = int((time.time() - started) * 1000)
 
+    output = {
+        "server_name": result.server_name,
+        "latency_ms": latency_ms,
+        "content": result.content,
+        "is_error": result.is_error,
+    }
     step_tool_call = StepToolCall(
-        tool_name=tool_name,
+        name=tool_name,
         arguments=dict(arguments),
-        result=result.content,
         success=not result.is_error,
-        latency_ms=latency_ms,
-        server_name=result.server_name,
+        output=output,
+        error=None if not result.is_error else str(result.content),
     )
     tool_messages = [
         {

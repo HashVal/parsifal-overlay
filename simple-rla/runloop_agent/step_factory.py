@@ -5,6 +5,7 @@ from typing import Any
 from runloop_agent.llm_step import LLMStep, LLMToolStep
 from runloop_agent.mcp_client import McpClient
 from runloop_agent.step import BaseStep, StepContext, StepResult, StepSpec, StepStatus
+from runloop_agent.tool_step import ToolStep
 
 
 class DeterministicArtifactStep(BaseStep):
@@ -50,7 +51,7 @@ def build_step(step_cfg: dict[str, Any], *, mcp_client: McpClient | None = None)
         step_id=step_id,
         description=description,
         allowed_tool_families=tuple(str(x) for x in (config.get("allowed_tool_families") or [])),
-        allowed_tools=tuple(str(x) for x in (config.get("allowed_tools") or [])),
+        allowed_tools=tuple(str(x) for x in (config.get("allowed_tools") or ([config.get("tool")] if config.get("tool") else []))),
         metadata=config,
     )
 
@@ -62,5 +63,9 @@ def build_step(step_cfg: dict[str, Any], *, mcp_client: McpClient | None = None)
         if mcp_client is None:
             raise ValueError("llm_tool_step requires an initialized mcp_client")
         return LLMToolStep(spec, mcp_client=mcp_client)
+    if step_type == "tool_step":
+        if mcp_client is None:
+            raise ValueError("tool_step requires an initialized mcp_client")
+        return ToolStep(spec, mcp_client=mcp_client)
 
     raise ValueError(f"unknown step type: {step_type}")
