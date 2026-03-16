@@ -4,11 +4,20 @@ import json
 from typing import Any
 
 from runloop_agent.step import StepContext, StepSpec
-from runloop_agent.tool_registry import ToolInfo
 
 
 def _json_block(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
+
+
+def _section(title: str, body: str | list[str]) -> list[str]:
+    lines = [f"[{title}]"]
+    if isinstance(body, str):
+        lines.append(body)
+    else:
+        lines.extend(body)
+    lines.append("")
+    return lines
 
 
 def build_step_prompt(spec: StepSpec, ctx: StepContext) -> str:
@@ -17,21 +26,21 @@ def build_step_prompt(spec: StepSpec, ctx: StepContext) -> str:
     allowed_tools = spec.metadata.get("model_tools") or []
 
     lines: list[str] = []
-    lines.append("You are executing one workflow step.")
-    lines.append(f"Phase: {ctx.phase_id}")
-    lines.append(f"Step: {ctx.step_id}")
-    lines.append(f"Attempt: {ctx.attempt}")
-    if model_hint:
-        lines.append(f"Model hint: {model_hint}")
-    lines.append("")
-    lines.append("Task:")
-    lines.append(spec.description or "Return a valid JSON object.")
-    lines.append("")
-    lines.append("Visible inputs/artifacts:")
-    lines.append(_json_block(ctx.inputs))
-    lines.append("")
+    lines.extend(_section("runtime_constraints", [
+        "You are executing one workflow step.",
+        "Use only the tools explicitly exposed to this step.",
+        "Your final answer must satisfy the output contract.",
+        "Do not include markdown fences or extra prose in the final answer.",
+    ]))
+    lines.extend(_section("step_identity", [
+        f"Phase: {ctx.phase_id}",
+        f"Step: {ctx.step_id}",
+        f"Attempt: {ctx.attempt}",
+        *( [f"Model hint: {model_hint}"] if model_hint else [] ),
+    ]))
+    lines.extend(_section("task", spec.description or "Return a valid JSON object."))
+    lines.extend(_section("visible_inputs", _json_block(ctx.inputs)))
     if allowed_tools:
-        lines.append("Available tools:")
         tool_summary = [
             {
                 "name": t.get("name"),
@@ -40,14 +49,13 @@ def build_step_prompt(spec: StepSpec, ctx: StepContext) -> str:
             }
             for t in allowed_tools
         ]
-        lines.append(_json_block(tool_summary))
-        lines.append("Use only the listed tools when needed. After tool use, produce the final answer as JSON only.")
-        lines.append("")
-    lines.append("Output requirements:")
-    if output_schema:
-        lines.append(_json_block(output_schema))
-    else:
-        lines.append('Return a JSON object.')
-    lines.append("")
-    lines.append("Important: respond with JSON only. Do not include markdown fences or extra prose.")
+        lines.extend(_section("tool_contract", [
+            "Available tools:",
+            _json_block(tool_summary),
+            "Use tools only when needed. After any tool use, return the final answer under the output contract.",
+        ]))
+    lines.extend(_section("output_contract", [
+        _json_block(output_schema) if output_schema else "Return a JSON object.",
+        "Final answer format: JSON only.",
+    ]))
     return "\n".join(lines)
