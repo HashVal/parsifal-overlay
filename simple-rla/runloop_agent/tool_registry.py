@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from runloop_agent.mcp_client import McpTool
+from runloop_agent.schema_defs import ModelToolSpec, ToolSchema
 
 
 @dataclass(slots=True)
@@ -14,13 +15,21 @@ class ToolInfo:
     family: str
     server_name: str
 
+    def as_schema(self) -> ToolSchema:
+        return ToolSchema(
+            name=self.name,
+            description=self.description,
+            parameters=self.input_schema or {"type": "object", "properties": {}},
+            family=self.family,
+            server_name=self.server_name,
+        )
+
     def to_model_tool(self) -> dict[str, Any]:
-        return {
-            "type": "function",
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.input_schema or {"type": "object", "properties": {}},
-        }
+        return ModelToolSpec(
+            name=self.name,
+            description=self.description,
+            parameters=self.input_schema or {"type": "object", "properties": {}},
+        ).as_dict()
 
 
 def infer_tool_family(tool: McpTool) -> str:
@@ -51,6 +60,9 @@ class ToolRegistry:
 
     def list_all(self) -> list[ToolInfo]:
         return list(self._tools.values())
+
+    def list_schemas(self) -> list[ToolSchema]:
+        return [tool.as_schema() for tool in self._tools.values()]
 
     def select(self, allowed_tools: list[str] | tuple[str, ...] | None, allowed_families: list[str] | tuple[str, ...] | None) -> list[ToolInfo]:
         tool_set = {str(x) for x in (allowed_tools or []) if str(x).strip()}
