@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -27,12 +28,57 @@ def _extract_tool_requests(raw: Any) -> list[dict[str, Any]]:
         name = getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else None)
         arguments = getattr(item, "arguments", None) or (item.get("arguments") if isinstance(item, dict) else None)
         if isinstance(arguments, str):
-            import json
             arguments = json.loads(arguments)
         if not isinstance(arguments, dict):
             arguments = {}
         out.append({"name": str(name), "arguments": arguments})
     return out
+
+
+def _json_size(value: Any) -> int:
+    try:
+        return len(json.dumps(value, ensure_ascii=False, default=str))
+    except Exception:
+        return len(str(value))
+
+
+def _prompt_observability(spec: StepSpec, ctx: StepContext, prompt: str) -> dict[str, Any]:
+    visible_input_sizes = {
+        str(key): _json_size(value)
+        for key, value in sorted((ctx.inputs or {}).items(), key=lambda kv: str(kv[0]))
+    }
+    top_visible_inputs = [
+        {"key": key, "chars": size}
+        for key, size in sorted(visible_input_sizes.items(), key=lambda kv: kv[1], reverse=True)[:10]
+    ]
+    return {
+        "workflow_id": ctx.metadata.get("workflow_id"),
+        "phase_id": ctx.phase_id,
+        "step_id": ctx.step_id,
+        "prompt_chars": len(prompt),
+        "visible_input_count": len(ctx.inputs or {}),
+        "visible_inputs_chars": _json_size(ctx.inputs or {}),
+        "top_visible_inputs": top_visible_inputs,
+        "allowed_tool_count": len(ctx.allowed_tools or ()),
+        "allowed_tool_family_count": len(ctx.allowed_tool_families or ()),
+        "output_schema_chars": _json_size(spec.metadata.get("output_schema") or {}),
+    }
+
+
+def _log_prompt_observability(obs: dict[str, Any], *, mode: str) -> None:
+    top_inputs = ", ".join(f"{item['key']}={item['chars']}" for item in obs.get("top_visible_inputs", [])) or "<none>"
+    print(
+        "[simple_rla.llm_prompt]"
+        f" mode={mode}"
+        f" workflow={obs.get('workflow_id')}"
+        f" phase={obs.get('phase_id')}"
+        f" step={obs.get('step_id')}"
+        f" prompt_chars={obs.get('prompt_chars')}"
+        f" visible_input_count={obs.get('visible_input_count')}"
+        f" visible_inputs_chars={obs.get('visible_inputs_chars')}"
+        f" output_schema_chars={obs.get('output_schema_chars')}"
+        f" top_visible_inputs={top_inputs}"
+    )
 
 
 def _build_final_result(
@@ -43,30 +89,42 @@ def _build_final_result(
     parse_mode_hint: str | None = None,
     prior_messages: list[dict[str, Any]] | None = None,
     tool_calls: list[Any] | None = None,
+    diagnostics_extra: dict[str, Any] | None = None,
 ) -> StepResult:
     parse_result = parse_model_output(response_text)
     messages = list(prior_messages or [])
     messages.append({"role": "user", "content": prompt})
     messages.append({"role": "assistant", "content": response_text})
+    diagnostics = {
+        "raw_model_output": response_text,
+        **(diagnostics_extra or {}),
+    }
     if not parse_result.ok:
+        diagnostics.update({
+            "parse_ok": False,
+            "parse_error": parse_result.error,
+            "parse_mode": parse_result.mode if parse_mode_hint is None else parse_mode_hint,
+            "extracted_json_text": parse_result.extracted_text,
+        })
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.INVALID,
             output=response_text,
             messages=messages,
             tool_calls=list(tool_calls or []),
-            diagnostics={
-                "raw_model_output": response_text,
-                "parse_ok": False,
-                "parse_error": parse_result.error,
-                "parse_mode": parse_result.mode if parse_mode_hint is None else parse_mode_hint,
-                "extracted_json_text": parse_result.extracted_text,
-            },
+            diagnostics=diagnostics,
             error=StepErrorInfo(code="parse_error", message=parse_result.error or "failed to parse model output"),
         )
 
     validation = validate_step_output(spec, parse_result.parsed)
     status = StepStatus.COMPLETED if validation.accepted else StepStatus.INVALID
+    diagnostics.update({
+        "parse_ok": True,
+        "parse_mode": parse_result.mode if parse_mode_hint is None else parse_mode_hint,
+        "extracted_json_text": parse_result.extracted_text,
+        "validation_errors": list(validation.errors),
+        "validation_warnings": list(validation.warnings),
+    })
     return StepResult(
         step_id=spec.step_id,
         status=status,
@@ -75,14 +133,7 @@ def _build_final_result(
         messages=messages,
         tool_calls=list(tool_calls or []),
         produced_artifacts={f"artifact:{spec.step_id}": parse_result.parsed},
-        diagnostics={
-            "raw_model_output": response_text,
-            "parse_ok": True,
-            "parse_mode": parse_result.mode if parse_mode_hint is None else parse_mode_hint,
-            "extracted_json_text": parse_result.extracted_text,
-            "validation_errors": list(validation.errors),
-            "validation_warnings": list(validation.warnings),
-        },
+        diagnostics=diagnostics,
         error=None if validation.accepted else StepErrorInfo(
             code="validation_error",
             message="; ".join(validation.errors) or "step output failed validation",
@@ -100,11 +151,14 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
             status=StepStatus.INVALID,
             error=StepErrorInfo(code="invalid_prompt", message="llm step prompt must be text"),
         )
+    prompt_obs = _prompt_observability(spec, ctx, prompt)
+    _log_prompt_observability(prompt_obs, mode="llm_step")
     model = str(spec.metadata.get("model") or os.environ.get("OPENAI_MODEL") or "").strip()
     if not model:
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.INVALID,
+            diagnostics=prompt_obs,
             error=StepErrorInfo(code="missing_model", message="llm step requires metadata.model or OPENAI_MODEL"),
         )
     try:
@@ -118,9 +172,15 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.FAILED,
+            diagnostics=prompt_obs,
             error=StepErrorInfo(code="model_error", message=str(exc)),
         )
-    return _build_final_result(spec=spec, prompt=prompt, response_text=response.text)
+    return _build_final_result(
+        spec=spec,
+        prompt=prompt,
+        response_text=response.text,
+        diagnostics_extra=prompt_obs,
+    )
 
 
 def run_llm_tool_step(
@@ -138,11 +198,14 @@ def run_llm_tool_step(
             status=StepStatus.INVALID,
             error=StepErrorInfo(code="invalid_prompt", message="llm tool step prompt must be text"),
         )
+    prompt_obs = _prompt_observability(spec, ctx, prompt)
+    _log_prompt_observability(prompt_obs, mode="llm_tool_step")
     model = str(spec.metadata.get("model") or os.environ.get("OPENAI_MODEL") or "").strip()
     if not model:
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.INVALID,
+            diagnostics=prompt_obs,
             error=StepErrorInfo(code="missing_model", message="llm tool step requires metadata.model or OPENAI_MODEL"),
         )
 
@@ -153,6 +216,7 @@ def run_llm_tool_step(
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.INVALID,
+            diagnostics={**prompt_obs, "selected_tool_count": 0},
             error=StepErrorInfo(code="no_tools_available", message="llm tool step resolved no allowed tools"),
         )
 
@@ -163,7 +227,19 @@ def run_llm_tool_step(
     timeout_s = int(spec.metadata.get("timeout_s") or os.environ.get("OPENAI_TIMEOUT_S") or 90)
 
     try:
-        for _ in range(max_turns):
+        for turn_idx in range(max_turns):
+            message_chars = _json_size(messages)
+            print(
+                "[simple_rla.llm_prompt]"
+                f" mode=llm_tool_step_turn"
+                f" workflow={ctx.metadata.get('workflow_id')}"
+                f" phase={ctx.phase_id}"
+                f" step={ctx.step_id}"
+                f" turn={turn_idx + 1}"
+                f" message_chars={message_chars}"
+                f" tool_calls_so_far={len(tool_calls)}"
+                f" selected_tool_count={len(model_tools)}"
+            )
             response = provider.generate_with_tools(model=model, messages=messages, tools=model_tools, timeout_s=timeout_s)
             response_text = getattr(response, "output_text", None) or ""
             requests = _extract_tool_requests(getattr(response, "raw", None))
@@ -174,6 +250,12 @@ def run_llm_tool_step(
                     response_text=response_text,
                     prior_messages=[],
                     tool_calls=tool_calls,
+                    diagnostics_extra={
+                        **prompt_obs,
+                        "selected_tool_count": len(model_tools),
+                        "tool_loop_message_chars": _json_size(messages),
+                        "tool_call_count": len(tool_calls),
+                    },
                 )
             for req in requests:
                 if len(tool_calls) >= max_tool_calls:
@@ -182,6 +264,12 @@ def run_llm_tool_step(
                         status=StepStatus.INVALID,
                         messages=messages,
                         tool_calls=tool_calls,
+                        diagnostics={
+                            **prompt_obs,
+                            "selected_tool_count": len(model_tools),
+                            "tool_loop_message_chars": _json_size(messages),
+                            "tool_call_count": len(tool_calls),
+                        },
                         error=StepErrorInfo(code="max_tool_calls_exceeded", message="tool call budget exceeded"),
                     )
                 step_tool_call, tool_messages = execute_tool_call(
@@ -198,6 +286,12 @@ def run_llm_tool_step(
             status=StepStatus.INVALID,
             messages=messages,
             tool_calls=tool_calls,
+            diagnostics={
+                **prompt_obs,
+                "selected_tool_count": len(model_tools),
+                "tool_loop_message_chars": _json_size(messages),
+                "tool_call_count": len(tool_calls),
+            },
             error=StepErrorInfo(code="max_model_turns_exceeded", message="model turn budget exceeded"),
         )
     except OpenAIError as exc:
@@ -206,6 +300,12 @@ def run_llm_tool_step(
             status=StepStatus.FAILED,
             messages=messages,
             tool_calls=tool_calls,
+            diagnostics={
+                **prompt_obs,
+                "selected_tool_count": len(model_tools),
+                "tool_loop_message_chars": _json_size(messages),
+                "tool_call_count": len(tool_calls),
+            },
             error=StepErrorInfo(code="model_error", message=str(exc)),
         )
     except Exception as exc:
@@ -214,5 +314,11 @@ def run_llm_tool_step(
             status=StepStatus.FAILED,
             messages=messages,
             tool_calls=tool_calls,
+            diagnostics={
+                **prompt_obs,
+                "selected_tool_count": len(model_tools),
+                "tool_loop_message_chars": _json_size(messages),
+                "tool_call_count": len(tool_calls),
+            },
             error=StepErrorInfo(code="tool_loop_error", message=str(exc)),
         )
