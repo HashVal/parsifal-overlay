@@ -12,11 +12,11 @@ command = "python3"
 args = ["-m", "mcp_servers.jira_server"]
 
 [mcp_servers.jira.env]
-JIRA_BASE_URL = "https://jira.devtools.intel.com"
-JIRA_API_PREFIX = "/rest/api/latest"
-JIRA_AUTH = "bearer"
-JIRA_TOKEN = "YOUR_BEARER_TOKEN"
-JIRA_VERIFY_SSL = "true"
+JIRA_BASE_URL = ""
+JIRA_API_PREFIX = ""
+JIRA_AUTH = ""
+JIRA_TOKEN = ""
+JIRA_VERIFY_SSL = ""
 
 [mcp_servers.files]
 command = "python3"
@@ -32,12 +32,10 @@ FILE_TOOLS_MAX_FILE_BYTES = "8388608"
 command = "python3"
 args = ["-m", "mcp_servers.kb_server"]
 
-# Alternative: basic auth (known-working in some environments)
-# JIRA_AUTH = "basic"
-# JIRA_USER = "YOUR_USER"
-# JIRA_PASSWORD = "YOUR_PASSWORD"
-# Note: current jira_server.py still falls back to JIRA_TOKEN in basic mode;
-# prefer JIRA_PASSWORD in docs/config going forward for clarity.
+# Alternative: basic auth
+# JIRA_AUTH = ""
+# JIRA_USER = ""
+# JIRA_PASSWORD = ""
 
 # Optional: Parsifal overlay tools (requires `pip install mcp` in that python env)
 # [mcp_servers.parsifal]
