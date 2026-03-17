@@ -6,6 +6,7 @@ terminal_phases:
 phases:
   - id: jira_phase
     type: standard_phase
+    next_phase: analysis_phase
     max_rollbacks: 0
     max_step_attempts: 1
     steps:
