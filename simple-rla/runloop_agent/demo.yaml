@@ -1,35 +1,50 @@
-workflow_id: demo_tool_workflow
-start_phase: collect_phase
+workflow_id: jira_v2_phase_demo
+start_phase: jira_phase
 terminal_phases:
-  - collect_phase
+  - jira_phase
 
 phases:
-  - id: collect_phase
+  - id: jira_phase
     type: standard_phase
     max_rollbacks: 0
     max_step_attempts: 1
     steps:
-      - id: seed_issue_key
-        type: deterministic_step
-        config:
-          artifact_key: issue_key
-          artifact_value: DEMO-123
-
-      - id: fetch_jira_info
+      - id: find_jira
         type: tool_step
         config:
-          tool: jira_get
+          tool: find_jira_by_key
           args:
-            key: ${artifacts.issue_key}
+            jira_key: ${workflow.inputs.jira_key}
           outputs:
-            artifact_key: jira_info
+            artifact_key: jira_key_lookup
+            nullable: true
 
-      - id: list_jira_attachments
+      - id: grep_jira_properties
         type: tool_step
         config:
-          tool: jira_list_attachments
+          tool: grep_jira_properties
           args:
-            key: ${artifacts.issue_key}
+            jira_key: ${workflow.inputs.jira_key}
           outputs:
-            artifact_key: jira_attachments
+            artifact_key: jira_properties
+
+      - id: select_jira_attachments
+        type: tool_step
+        config:
+          tool: select_jira_attachments
+          args:
+            jira_key: ${workflow.inputs.jira_key}
+          outputs:
+            artifact_key: jira_attachment_urls
+            nullable: true
+
+      - id: download_jira_attachments
+        type: tool_step
+        config:
+          tool: download_jira_attachments
+          args:
+            jira_key: ${workflow.inputs.jira_key}
+            attachment_urls: ${artifacts.jira_attachment_urls}
+          outputs:
+            artifact_key: artifact_attachments
             nullable: true
