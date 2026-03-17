@@ -40,6 +40,7 @@ def execute_tool_call(
             "server_name": result.server_name,
             "arguments": result.arguments,
             "content": result.content,
+            "raw_content": result.raw_content,
             "is_error": result.is_error,
         },
     )

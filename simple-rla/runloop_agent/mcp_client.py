@@ -31,6 +31,27 @@ class McpToolCallResult:
     arguments: dict[str, Any]
     content: Any
     is_error: bool = False
+    raw_content: Any = None
+
+
+def _decode_mcp_content(content: Any) -> Any:
+    if not isinstance(content, list) or len(content) != 1:
+        return content
+    item = content[0]
+    if not isinstance(item, dict):
+        return content
+    if item.get("type") != "text":
+        return content
+    text = item.get("text")
+    if not isinstance(text, str):
+        return content
+    stripped = text.strip()
+    if not stripped:
+        return ""
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        return text
 
 
 class _StdioSession:
@@ -112,14 +133,16 @@ class _StdioSession:
 
     def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> McpToolCallResult:
         result = self._rpc("tools/call", {"name": tool_name, "arguments": arguments})
-        content = result.get("content") if isinstance(result, dict) else result
+        raw_content = result.get("content") if isinstance(result, dict) else result
+        decoded_content = _decode_mcp_content(raw_content)
         is_error = bool(result.get("isError")) if isinstance(result, dict) else False
         return McpToolCallResult(
             tool_name=tool_name,
             server_name=self.server.name,
             arguments=dict(arguments),
-            content=content,
+            content=decoded_content,
             is_error=is_error,
+            raw_content=raw_content,
         )
 
     def _drain_stderr(self) -> None:
