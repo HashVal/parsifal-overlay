@@ -6,6 +6,8 @@ import logging
 import sys
 from pathlib import Path
 
+import yaml
+
 # Allow running as a script from inside the runloop_agent/ directory.
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -15,6 +17,17 @@ from runloop_agent.runtime_config import apply_runtime_config, load_runtime_conf
 from runloop_agent.workflow_dump import default_dump_dir, dump_workflow_run
 from runloop_agent.workflow_loader import load_workflow
 from runloop_agent.workflow_runtime import WorkflowRuntime
+
+
+def _peek_workflow_id(config_path: str | Path) -> str:
+    path = Path(config_path)
+    with path.open("r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if isinstance(data, dict):
+        workflow_id = str(data.get("workflow_id") or "").strip()
+        if workflow_id:
+            return workflow_id
+    return path.stem
 
 
 def main() -> None:
@@ -35,8 +48,8 @@ def main() -> None:
     runtime_cfg = load_runtime_config(args.config_file)
     apply_runtime_config(runtime_cfg)
 
-    spec = load_workflow(args.config, mcp_client=None)
-    run_root = default_dump_dir(spec.workflow_id, base_dir=runtime_cfg.artifacts_root)
+    workflow_id = _peek_workflow_id(args.config)
+    run_root = default_dump_dir(workflow_id, base_dir=runtime_cfg.artifacts_root)
     dump_path = run_root if args.dump in (None, "__DEFAULT__") else Path(args.dump).resolve()
 
     mcp_client = McpClient(runtime_cfg, workspace_root=str(run_root))
