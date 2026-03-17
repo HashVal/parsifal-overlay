@@ -1,7 +1,7 @@
 workflow_id: jira_v2_phase_demo
 start_phase: jira_phase
 terminal_phases:
-  - jira_phase
+  - analysis_phase
 
 phases:
   - id: jira_phase
@@ -48,3 +48,45 @@ phases:
           outputs:
             artifact_key: artifact_attachments
             nullable: true
+
+  - id: analysis_phase
+    type: standard_phase
+    max_rollbacks: 0
+    max_step_attempts: 1
+    steps:
+      - id: extract_log_signatures
+        type: tool_step
+        config:
+          tool: log_extract_signatures
+          args:
+            path: ${artifacts.artifact_attachments.0}
+            profile: kernel
+            max_total_signatures: 32
+            max_chars: 12000
+          outputs:
+            artifact_key: signature_logs
+
+      - id: summarize_jira_issue
+        type: llm_step
+        config:
+          instruction: |
+            Analyze the Jira case using the visible inputs.
+
+            Goals:
+            1. Extract a concise list of issue keywords.
+            2. Write a short technical summary of the issue.
+            3. Use the log signatures as the primary evidence source.
+            4. If the Jira description and log signatures do not align, mention that explicitly.
+            5. Do not invent evidence that is not present in the visible inputs.
+          output_schema:
+            type: object
+            required:
+              - issue_keywords
+              - llm_sum_description
+            properties:
+              issue_keywords:
+                type: array
+                items:
+                  type: string
+              llm_sum_description:
+                type: string
