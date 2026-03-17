@@ -35,7 +35,11 @@ def main() -> None:
     runtime_cfg = load_runtime_config(args.config_file)
     apply_runtime_config(runtime_cfg)
 
-    mcp_client = McpClient(runtime_cfg)
+    spec = load_workflow(args.config, mcp_client=None)
+    run_root = default_dump_dir(spec.workflow_id, base_dir=runtime_cfg.artifacts_root)
+    dump_path = run_root if args.dump in (None, "__DEFAULT__") else Path(args.dump).resolve()
+
+    mcp_client = McpClient(runtime_cfg, workspace_root=str(run_root))
     if runtime_cfg.mcp_servers:
         mcp_client.start()
 
@@ -50,17 +54,17 @@ def main() -> None:
             initial_artifacts[key] = value
 
         log.info(
-            "workflow_demo.start config=%s workflow_id=%s initial_artifacts=%s",
+            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s",
             args.config,
             spec.workflow_id,
+            str(run_root),
             sorted(initial_artifacts.keys()),
         )
         runtime = WorkflowRuntime(spec)
-        state = runtime.run(initial_artifacts=initial_artifacts, metadata={"entry": "workflow_demo.py"})
+        state = runtime.run(initial_artifacts=initial_artifacts, metadata={"entry": "workflow_demo.py", "run_root": str(run_root)})
         checkpoint = runtime.finalize_workflow(state)
 
         if args.dump is not None:
-            dump_path = default_dump_dir(spec.workflow_id) if args.dump == "__DEFAULT__" else args.dump
             dump_root = dump_workflow_run(dump_path, state, checkpoint)
             log.info("workflow_demo.dump path=%s", str(dump_root))
 
@@ -78,6 +82,8 @@ def main() -> None:
         print(state.current_phase_id)
         print("=== CURRENT STEP ===")
         print(state.current_step_id)
+        print("=== RUN ROOT ===")
+        print(str(run_root))
         print("=== INITIAL INPUTS ===")
         print(json.dumps(initial_artifacts, ensure_ascii=False, indent=2, default=str))
         print("=== GLOBAL ARTIFACTS ===")

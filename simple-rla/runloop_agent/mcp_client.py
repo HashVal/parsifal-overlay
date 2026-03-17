@@ -55,10 +55,10 @@ def _decode_mcp_content(content: Any) -> Any:
 
 
 class _StdioSession:
-    def __init__(self, server: McpServerConfig, *, protocol_version: str | None, artifacts_root: str | None) -> None:
+    def __init__(self, server: McpServerConfig, *, protocol_version: str | None, workspace_root: str | None) -> None:
         self.server = server
         self.protocol_version = protocol_version or "2024-11-05"
-        self.artifacts_root = artifacts_root
+        self.workspace_root = workspace_root
         self._proc: subprocess.Popen[str] | None = None
         self._lock = threading.Lock()
         self._id = 0
@@ -67,10 +67,11 @@ class _StdioSession:
     def start(self) -> None:
         env = os.environ.copy()
         env.update(self.server.env)
-        if self.artifacts_root:
-            env.setdefault("SIMPLE_RLA_WORKSPACE_DIR", str(Path(self.artifacts_root).resolve()))
-            env.setdefault("FILE_TOOLS_ROOT", str(Path(self.artifacts_root).resolve()))
-            env.setdefault("SIMPLE_RLA_ATTACHMENTS_DIR", str((Path(self.artifacts_root) / "attachments").resolve()))
+        if self.workspace_root:
+            workspace_root = Path(self.workspace_root).resolve()
+            env.setdefault("SIMPLE_RLA_WORKSPACE_DIR", str(workspace_root))
+            env.setdefault("FILE_TOOLS_ROOT", str(workspace_root))
+            env.setdefault("SIMPLE_RLA_ATTACHMENTS_DIR", str((workspace_root / "attachments").resolve()))
         cwd = self.server.cwd or None
         self._proc = subprocess.Popen(
             [self.server.command, *self.server.args],
@@ -180,8 +181,9 @@ class _StdioSession:
 
 
 class McpClient:
-    def __init__(self, cfg: RuntimeConfig) -> None:
+    def __init__(self, cfg: RuntimeConfig, *, workspace_root: str | None = None) -> None:
         self._cfg = cfg
+        self._workspace_root = workspace_root or cfg.artifacts_root
         self._sessions: dict[str, _StdioSession] = {}
         self._tools: dict[str, McpTool] = {}
 
@@ -189,7 +191,7 @@ class McpClient:
         if self._sessions:
             return
         for server in self._cfg.mcp_servers:
-            sess = _StdioSession(server, protocol_version=self._cfg.protocol_version, artifacts_root=self._cfg.artifacts_root)
+            sess = _StdioSession(server, protocol_version=self._cfg.protocol_version, workspace_root=self._workspace_root)
             sess.start()
             self._sessions[server.name] = sess
         self.refresh_tools()
