@@ -14,7 +14,11 @@ if __package__ in (None, ""):
 
 from runloop_agent.mcp_client import McpClient
 from runloop_agent.runtime_config import apply_runtime_config, load_runtime_config
-from runloop_agent.workflow_dump import default_dump_dir, dump_workflow_run
+from runloop_agent.workflow_dump import (
+    default_dump_dir,
+    dump_workflow_run,
+    write_run_meta,
+)
 from runloop_agent.workflow_loader import load_workflow
 from runloop_agent.workflow_runtime import WorkflowRuntime
 
@@ -51,6 +55,13 @@ def main() -> None:
     workflow_id = _peek_workflow_id(args.config)
     run_root = default_dump_dir(workflow_id, base_dir=runtime_cfg.artifacts_root)
     dump_path = run_root if args.dump in (None, "__DEFAULT__") else Path(args.dump).resolve()
+    write_run_meta(
+        run_root,
+        workflow_id=workflow_id,
+        config_path=args.config,
+        run_root=run_root,
+        dump_enabled=args.dump is not None,
+    )
 
     mcp_client = McpClient(runtime_cfg, workspace_root=str(run_root))
     if runtime_cfg.mcp_servers:
@@ -73,7 +84,7 @@ def main() -> None:
             str(run_root),
             sorted(initial_artifacts.keys()),
         )
-        runtime = WorkflowRuntime(spec)
+        runtime = WorkflowRuntime(spec, incremental_dump_dir=str(run_root))
         state = runtime.run(initial_artifacts=initial_artifacts, metadata={"entry": "workflow_demo.py", "run_root": str(run_root)})
         checkpoint = runtime.finalize_workflow(state)
 

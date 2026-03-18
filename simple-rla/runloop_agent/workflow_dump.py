@@ -31,6 +31,62 @@ def _write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(_to_jsonable(payload), ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
 
 
+def write_run_meta(
+    dump_dir: str | Path,
+    *,
+    workflow_id: str,
+    config_path: str,
+    run_root: str | Path,
+    dump_enabled: bool,
+) -> Path:
+    root = Path(dump_dir).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "workflow_id": workflow_id,
+        "config_path": str(config_path),
+        "run_root": str(Path(run_root).resolve()),
+        "dump_enabled": bool(dump_enabled),
+        "started_at": datetime.now().isoformat(),
+    }
+    path = root / "run_meta.json"
+    _write_json(path, payload)
+    return path
+
+
+def write_incremental_step_result(dump_dir: str | Path, *, phase_id: str, step_id: str, result: Any) -> Path:
+    root = Path(dump_dir).resolve()
+    path = root / "step_results" / f"{phase_id}__{step_id}.json"
+    payload = {
+        "phase_id": phase_id,
+        "step_id": step_id,
+        "result": result,
+    }
+    _write_json(path, payload)
+    return path
+
+
+def write_workflow_progress(dump_dir: str | Path, state: WorkflowRunState) -> Path:
+    root = Path(dump_dir).resolve()
+    completed_steps = {
+        phase_id: sorted(phase_state.completed_step_results.keys())
+        for phase_id, phase_state in state.phase_states.items()
+        if phase_state.completed_step_results
+    }
+    payload = {
+        "workflow_id": state.workflow_id,
+        "status": state.status,
+        "current_phase_id": state.current_phase_id,
+        "current_step_id": state.current_step_id,
+        "errors": list(state.errors),
+        "global_artifact_keys": sorted(state.global_artifacts.keys()),
+        "completed_steps": completed_steps,
+        "metadata": dict(state.metadata),
+    }
+    path = root / "workflow_progress.json"
+    _write_json(path, payload)
+    return path
+
+
 def dump_workflow_run(dump_dir: str | Path, state: WorkflowRunState, checkpoint: WorkflowCheckpoint) -> Path:
     root = Path(dump_dir).resolve()
     root.mkdir(parents=True, exist_ok=True)

@@ -7,6 +7,7 @@ from typing import Any
 
 from runloop_agent.phase import BasePhase, PhaseCheckpoint, PhaseState, PhaseStatus, RollbackDecision
 from runloop_agent.step import BaseStep, StepContext, StepResult, StepStatus
+from runloop_agent.workflow_dump import write_incremental_step_result, write_workflow_progress
 
 
 class WorkflowStatus(str, Enum):
@@ -127,10 +128,11 @@ class WorkflowRuntime:
     responsible for their own execution details via BaseStep.run(...).
     """
 
-    def __init__(self, spec: WorkflowSpec) -> None:
+    def __init__(self, spec: WorkflowSpec, *, incremental_dump_dir: str | None = None) -> None:
         if not spec.phases:
             raise ValueError("workflow spec must contain at least one phase")
         self.spec = spec
+        self.incremental_dump_dir = incremental_dump_dir
         self._phase_map = {phase.phase_id: phase for phase in spec.phases}
         if len(self._phase_map) != len(spec.phases):
             raise ValueError("workflow spec contains duplicate phase ids")
@@ -163,6 +165,7 @@ class WorkflowRuntime:
             sorted(state.global_artifacts.keys()),
             sorted(state.metadata.keys()),
         )
+        self._write_incremental_progress(state)
         return state
 
     def run(self, initial_artifacts: dict[str, Any] | None = None, metadata: dict[str, Any] | None = None) -> WorkflowRunState:
@@ -172,6 +175,7 @@ class WorkflowRuntime:
             if phase_id is None:
                 state.status = WorkflowStatus.FAILED
                 state.errors.append({"code": "missing_current_phase", "message": "workflow running without a current phase"})
+                self._write_incremental_progress(state)
                 break
             phase = self._phase_map[phase_id]
             self.run_phase(phase, state)
@@ -205,6 +209,7 @@ class WorkflowRuntime:
                         "phase_id": phase.phase_id,
                         "message": "phase exit check failed",
                     })
+                    self._write_incremental_progress(state)
                 continue
 
             step = steps[phase_state.step_index]
@@ -325,10 +330,14 @@ class WorkflowRuntime:
                 "details": result.error.details,
             })
 
+        self._write_incremental_step_result(phase.phase_id, step.step_id, result)
+        self._write_incremental_progress(state)
+
         if transition.action == "advance_to_next_step":
             return
         if transition.action == "rerun_same_step":
             state.transition_input = TransitionInput(source="rerun", artifacts=dict(result.produced_artifacts), notes=[transition.reason])
+            self._write_incremental_progress(state)
             return
         if transition.action == "rollback_to_anchor_step":
             target = transition.target_step_id
@@ -336,27 +345,32 @@ class WorkflowRuntime:
                 phase_state.status = PhaseStatus.FAILED
                 state.status = WorkflowStatus.FAILED
                 state.errors.append({"code": "missing_rollback_target", "phase_id": phase.phase_id})
+                self._write_incremental_progress(state)
                 return
             target_index = self._find_step_index(phase, target)
             phase_state.step_index = target_index
             phase_state.rollback_count += 1
             state.total_rollbacks += 1
             state.transition_input = TransitionInput(source="rollback", artifacts=dict(result.produced_artifacts), notes=[transition.reason])
+            self._write_incremental_progress(state)
             return
         if transition.action == "phase_blocked":
             phase_state.status = PhaseStatus.BLOCKED
             state.status = WorkflowStatus.BLOCKED
             state.transition_input = TransitionInput(source="exception", artifacts=dict(result.produced_artifacts), notes=[transition.reason])
+            self._write_incremental_progress(state)
             return
         if transition.action == "phase_failed":
             phase_state.status = PhaseStatus.FAILED
             state.status = WorkflowStatus.FAILED
             state.total_failures += 1
             state.transition_input = TransitionInput(source="exception", artifacts=dict(result.produced_artifacts), notes=[transition.reason])
+            self._write_incremental_progress(state)
             return
         phase_state.status = PhaseStatus.FAILED
         state.status = WorkflowStatus.FAILED
         state.errors.append({"code": "unknown_step_transition", "step_id": step.step_id, "transition": transition.action})
+        self._write_incremental_progress(state)
 
     def resolve_phase_transition(self, phase: BasePhase, state: WorkflowRunState) -> PhaseTransition:
         next_phase_id = phase.next_phase()
@@ -391,6 +405,7 @@ class WorkflowRuntime:
             len(state.errors),
             sorted(state.global_artifacts.keys()),
         )
+        self._write_incremental_progress(state)
         return WorkflowCheckpoint(
             workflow_id=state.workflow_id,
             status=state.status,
@@ -415,26 +430,47 @@ class WorkflowRuntime:
             if next_phase_id is None:
                 state.status = WorkflowStatus.FAILED
                 state.errors.append({"code": "missing_next_phase", "phase_id": phase.phase_id})
+                self._write_incremental_progress(state)
                 return
             state.current_phase_id = next_phase_id
             state.current_step_id = None
             next_phase_state = state.phase_states[next_phase_id]
             next_phase_state.status = PhaseStatus.RUNNING
             state.transition_input = TransitionInput(source="normal_handoff", artifacts=dict(state.global_artifacts), notes=[transition.reason])
+            self._write_incremental_progress(state)
             return
         if transition.action == "workflow_completed":
             state.status = WorkflowStatus.COMPLETED
             state.current_step_id = None
             state.transition_input = TransitionInput(source="normal_handoff", artifacts=dict(state.global_artifacts), notes=[transition.reason])
+            self._write_incremental_progress(state)
             return
         if transition.action == "workflow_blocked":
             state.status = WorkflowStatus.BLOCKED
             state.current_step_id = None
             state.errors.append({"code": "workflow_blocked", "phase_id": phase.phase_id, "message": transition.reason})
+            self._write_incremental_progress(state)
             return
         state.status = WorkflowStatus.FAILED
         state.current_step_id = None
         state.errors.append({"code": "workflow_failed", "phase_id": phase.phase_id, "message": transition.reason})
+        self._write_incremental_progress(state)
+
+    def _write_incremental_step_result(self, phase_id: str, step_id: str, result: StepResult) -> None:
+        if not self.incremental_dump_dir:
+            return
+        try:
+            write_incremental_step_result(self.incremental_dump_dir, phase_id=phase_id, step_id=step_id, result=result)
+        except Exception as exc:
+            log.warning("incremental.step_dump_failed phase=%s step=%s error=%s", phase_id, step_id, exc)
+
+    def _write_incremental_progress(self, state: WorkflowRunState) -> None:
+        if not self.incremental_dump_dir:
+            return
+        try:
+            write_workflow_progress(self.incremental_dump_dir, state)
+        except Exception as exc:
+            log.warning("incremental.workflow_progress_failed workflow=%s error=%s", state.workflow_id, exc)
 
     def _find_step_index(self, phase: BasePhase, step_id: str) -> int:
         steps = phase.steps()
