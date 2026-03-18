@@ -7,7 +7,6 @@ from typing import Any
 
 from runloop_agent.phase import BasePhase, PhaseCheckpoint, PhaseState, PhaseStatus, RollbackDecision
 from runloop_agent.step import BaseStep, StepContext, StepResult, StepStatus
-from runloop_agent.workflow_dump import write_incremental_step_result, write_workflow_progress
 
 
 class WorkflowStatus(str, Enum):
@@ -460,6 +459,7 @@ class WorkflowRuntime:
         if not self.incremental_dump_dir:
             return
         try:
+            from runloop_agent.workflow_dump import write_incremental_step_result
             write_incremental_step_result(self.incremental_dump_dir, phase_id=phase_id, step_id=step_id, result=result)
         except Exception as exc:
             log.warning("incremental.step_dump_failed phase=%s step=%s error=%s", phase_id, step_id, exc)
@@ -468,6 +468,7 @@ class WorkflowRuntime:
         if not self.incremental_dump_dir:
             return
         try:
+            from runloop_agent.workflow_dump import write_workflow_progress
             write_workflow_progress(self.incremental_dump_dir, state)
         except Exception as exc:
             log.warning("incremental.workflow_progress_failed workflow=%s error=%s", state.workflow_id, exc)
