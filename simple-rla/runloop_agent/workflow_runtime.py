@@ -108,6 +108,17 @@ class PhaseTransition:
 log = logging.getLogger("simple_rla.workflow_runtime")
 
 
+def _visible_inputs_for_step(step: BaseStep, artifacts: dict[str, Any]) -> dict[str, Any]:
+    step_type = step.__class__.__name__
+    if step_type not in {"LLMStep", "LLMToolStep"}:
+        return dict(artifacts)
+    return {
+        key: value
+        for key, value in artifacts.items()
+        if not str(key).startswith("step:")
+    }
+
+
 class WorkflowRuntime:
     """Workflow-level runtime kernel for Phase-Step orchestration.
 
@@ -248,11 +259,12 @@ class WorkflowRuntime:
         allowed_tools = step.allowed_tools(
             StepContext(phase_id=phase.phase_id, step_id=step.step_id)
         )
+        visible_inputs = _visible_inputs_for_step(step, state.global_artifacts)
         return StepContext(
             phase_id=phase.phase_id,
             step_id=step.step_id,
             attempt=phase_state.step_attempts.get(step.step_id, 0),
-            inputs=dict(state.global_artifacts),
+            inputs=visible_inputs,
             shared_state=phase_state.shared_state,
             available_artifacts=state.global_artifacts,
             allowed_tool_families=allowed_tool_families or phase.allowed_tool_families(),
