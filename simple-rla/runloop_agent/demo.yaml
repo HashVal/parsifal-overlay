@@ -128,3 +128,32 @@ phases:
                   type: string
               llm_sum_description:
                 type: string
+
+      - id: kb_ground_case
+        type: tool_step
+        config:
+          tool: kb_ground
+          args:
+            context:
+              case_id: ${workflow.inputs.jira_key}
+              summary: ${artifacts.artifact:summarize_jira_issue.llm_sum_description}
+            signals:
+              - type: symptom
+                value: ${artifacts.artifact:summarize_jira_issue.issue_keywords.0}
+              - type: symptom
+                value: ${artifacts.artifact:summarize_jira_issue.issue_keywords.1}
+              - type: symptom
+                value: ${artifacts.artifact:extract_observations.key_observations.0}
+            hints:
+              preferred_kinds:
+                - issue_pattern
+                - rca
+                - code_note
+                - platform_note
+            limits:
+              max_total_hits: 4
+              max_hits_per_kind: 1
+              include_snippets: true
+          outputs:
+            artifact_key: kb_grounding
+            nullable: true
