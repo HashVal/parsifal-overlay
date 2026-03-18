@@ -67,18 +67,55 @@ phases:
           outputs:
             artifact_key: signature_logs
 
+      - id: extract_observations
+        type: llm_step
+        config:
+          instruction: |
+            Extract structured observations from the visible inputs.
+
+            Your job is evidence distillation, not root-cause analysis.
+
+            Requirements:
+            1. Extract only observations that are directly supported by the visible inputs.
+            2. Do not infer root cause unless it is explicitly stated in the evidence.
+            3. Separate direct observations from contradictions and missing evidence.
+            4. If Jira description and log signatures do not align, list that explicitly.
+            5. Keep the output compact and structured for downstream reasoning.
+          output_schema:
+            type: object
+            required:
+              - key_observations
+              - contradictions
+              - missing_evidence
+              - observation_summary
+            properties:
+              key_observations:
+                type: array
+                items:
+                  type: string
+              contradictions:
+                type: array
+                items:
+                  type: string
+              missing_evidence:
+                type: array
+                items:
+                  type: string
+              observation_summary:
+                type: string
+
       - id: summarize_jira_issue
         type: llm_step
         config:
           instruction: |
-            Analyze the Jira case using the visible inputs.
+            Summarize the Jira case based on the extracted observations.
 
-            Goals:
-            1. Extract a concise list of issue keywords.
-            2. Write a short technical summary of the issue.
-            3. Use the log signatures as the primary evidence source.
-            4. If the Jira description and log signatures do not align, mention that explicitly.
-            5. Do not invent evidence that is not present in the visible inputs.
+            Requirements:
+            1. Use the extracted observations as the primary basis.
+            2. Produce a concise list of issue keywords.
+            3. Write a short technical summary of the case.
+            4. If the evidence is incomplete or contradictory, reflect that clearly.
+            5. Do not introduce unsupported root-cause claims.
           output_schema:
             type: object
             required:
