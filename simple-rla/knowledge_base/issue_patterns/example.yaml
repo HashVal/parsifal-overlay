@@ -1,4 +1,4 @@
-id: issue-pattern-bmg-xe-gem-private-object-init
+id: issue-pattern-bmg-xe-gem-private-object-init-example
 kind: issue_pattern
 status: confirmed
 title: BMG Xe GEM private object initialization BUG during LRC creation
