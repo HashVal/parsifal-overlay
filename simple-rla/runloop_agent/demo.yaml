@@ -150,6 +150,12 @@ phases:
                 - rca
                 - code_note
                 - platform_note
+              exclude_ids:
+                - code-note-drm-gem-private-object-init-example
+                - platform-note-bmg-hybrid-integrated-modes-example
+                - playbook-kernel-panic-triage-example
+                - rca-pkt-20231-example
+                - workaround-bmg-xe-mode-restriction-example
             limits:
               max_total_hits: 4
               max_hits_per_kind: 1
