@@ -157,3 +157,62 @@ phases:
           outputs:
             artifact_key: kb_grounding
             nullable: true
+
+      - id: propose_root_cause
+        type: llm_step
+        config:
+          instruction: |
+            Propose constrained root-cause hypotheses for the current case.
+
+            Use the extracted observations, the case summary, and the KB grounding as the primary basis.
+            Do not present the answer as final truth.
+            Produce hypotheses only when supported by visible evidence.
+            If the evidence is weak or conflicting, say so explicitly.
+
+            Output limits:
+            1. candidate_root_causes: at most 3 items.
+            2. Each candidate title should be short.
+            3. why_it_matches and why_not_certain should each contain short bullet-like strings.
+            4. recommended_next_checks: at most 4 items.
+            5. Keep evidence_summary concise.
+          output_schema:
+            type: object
+            required:
+              - candidate_root_causes
+              - primary_hypothesis
+              - evidence_summary
+              - recommended_next_checks
+              - confidence_overall
+            properties:
+              candidate_root_causes:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - title
+                    - confidence
+                    - why_it_matches
+                    - why_not_certain
+                  properties:
+                    title:
+                      type: string
+                    confidence:
+                      type: string
+                    why_it_matches:
+                      type: array
+                      items:
+                        type: string
+                    why_not_certain:
+                      type: array
+                      items:
+                        type: string
+              primary_hypothesis:
+                type: string
+              evidence_summary:
+                type: string
+              recommended_next_checks:
+                type: array
+                items:
+                  type: string
+              confidence_overall:
+                type: string
