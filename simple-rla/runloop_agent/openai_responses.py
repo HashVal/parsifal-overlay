@@ -151,8 +151,7 @@ def _stream_text_delta(event: dict[str, Any]) -> str:
     return ""
 
 
-def _iter_sse_events(resp: Any) -> list[dict[str, Any]]:
-    events: list[dict[str, Any]] = []
+def _iter_sse_events(resp: Any):
     data_lines: list[str] = []
     for raw_line in resp:
         line = raw_line.decode("utf-8", errors="replace")
@@ -167,7 +166,7 @@ def _iter_sse_events(resp: Any) -> list[dict[str, Any]]:
             if payload == "[DONE]":
                 break
             try:
-                events.append(json.loads(payload))
+                yield json.loads(payload)
             except json.JSONDecodeError:
                 logger.debug("openai.stream.invalid_event payload=%r", payload[:200])
             continue
@@ -177,10 +176,9 @@ def _iter_sse_events(resp: Any) -> list[dict[str, Any]]:
         payload = "\n".join(data_lines)
         if payload != "[DONE]":
             try:
-                events.append(json.loads(payload))
+                yield json.loads(payload)
             except json.JSONDecodeError:
                 logger.debug("openai.stream.invalid_tail_event payload=%r", payload[:200])
-    return events
 
 
 def _create_response_streaming(
@@ -189,35 +187,33 @@ def _create_response_streaming(
     timeout_s: int,
     stream_observer: Callable[[str], None] | None,
 ) -> ResponseResult:
+    final_data: dict[str, Any] | None = None
+    aggregated_text_parts: list[str] = []
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            events = _iter_sse_events(resp)
+            for event in _iter_sse_events(resp):
+                if not isinstance(event, dict):
+                    continue
+                delta_text = _stream_text_delta(event)
+                if delta_text:
+                    aggregated_text_parts.append(delta_text)
+                    if stream_observer is not None:
+                        try:
+                            stream_observer(delta_text)
+                        except Exception:
+                            logger.exception("openai.stream_observer_failed")
+                event_type = str(event.get("type") or "")
+                if event_type in {"response.completed", "response.done", "completed", "done"}:
+                    response = event.get("response")
+                    if isinstance(response, dict):
+                        final_data = response
+                elif {"id", "output"}.issubset(event.keys()) or "output_text" in event:
+                    final_data = event
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         raise OpenAIError(f"HTTP {exc.code} URL={req.full_url} body={raw[:2000]}")
     except urllib.error.URLError as exc:
         raise OpenAIError(f"URL error: {exc}")
-
-    final_data: dict[str, Any] | None = None
-    aggregated_text_parts: list[str] = []
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        delta_text = _stream_text_delta(event)
-        if delta_text:
-            aggregated_text_parts.append(delta_text)
-            if stream_observer is not None:
-                try:
-                    stream_observer(delta_text)
-                except Exception:
-                    logger.exception("openai.stream_observer_failed")
-        event_type = str(event.get("type") or "")
-        if event_type in {"response.completed", "response.done", "completed", "done"}:
-            response = event.get("response")
-            if isinstance(response, dict):
-                final_data = response
-        elif {"id", "output"}.issubset(event.keys()) or "output_text" in event:
-            final_data = event
 
     if final_data is None:
         output_text = "".join(aggregated_text_parts).strip()
