@@ -162,6 +162,7 @@ phases:
                 - platform_note
               exclude_ids:
                 - code-note-drm-gem-private-object-init-example
+                - issue-pattern-bmg-xe-gem-private-object-init-example
                 - platform-note-bmg-hybrid-integrated-modes-example
                 - playbook-kernel-panic-triage-example
                 - rca-pkt-20231-example
