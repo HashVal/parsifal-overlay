@@ -62,8 +62,8 @@ phases:
           args:
             path: ${artifacts.artifact_attachments.0}
             profile: kernel
-            max_total_signatures: 32
-            max_chars: 12000
+            max_total_signatures: 12
+            max_chars: 4000
           outputs:
             artifact_key: signature_logs
 
@@ -71,16 +71,22 @@ phases:
         type: llm_step
         config:
           instruction: |
-            Extract structured observations from the visible inputs.
+            Extract a compact observation bundle from the visible inputs.
 
-            Your job is evidence distillation, not root-cause analysis.
+            Your job is evidence extraction, not diagnosis.
 
             Requirements:
             1. Extract only observations that are directly supported by the visible inputs.
-            2. Do not infer root cause unless it is explicitly stated in the evidence.
-            3. Separate direct observations from contradictions and missing evidence.
-            4. If Jira description and log signatures do not align, list that explicitly.
-            5. Keep the output compact and structured for downstream reasoning.
+            2. Prefer precise technical signals over broad narrative restatement.
+            3. Keep each item short and literal.
+            4. Do not infer root cause.
+            5. If evidence is incomplete, keep the output sparse instead of filling gaps.
+
+            Output limits:
+            - key_observations: at most 5 items
+            - contradictions: at most 2 items
+            - missing_evidence: at most 3 items
+            - observation_summary: one short paragraph, at most 3 sentences
           output_schema:
             type: object
             required:
@@ -91,18 +97,22 @@ phases:
             properties:
               key_observations:
                 type: array
+                maxItems: 5
                 items:
                   type: string
               contradictions:
                 type: array
+                maxItems: 2
                 items:
                   type: string
               missing_evidence:
                 type: array
+                maxItems: 3
                 items:
                   type: string
               observation_summary:
                 type: string
+                maxLength: 400
 
       - id: summarize_jira_issue
         type: llm_step
