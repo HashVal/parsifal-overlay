@@ -41,6 +41,7 @@ def main() -> None:
     parser.add_argument("--dump", nargs="?", const="__DEFAULT__", default=None, help="Dump run artifacts to dir (default: ./artifacts/runloop/<workflow>/<timestamp>)")
     parser.add_argument("--initial-artifact", action="append", default=[], help="Extra initial artifact in key=value form")
     parser.add_argument("--log-level", default="INFO", help="DEBUG|INFO|WARNING|ERROR")
+    parser.add_argument("--enable-real-time-output", action="store_true", help="Enable streaming debug output for llm steps")
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -78,14 +79,22 @@ def main() -> None:
             initial_artifacts[key] = value
 
         log.info(
-            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s",
+            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s realtime_output=%s",
             args.config,
             spec.workflow_id,
             str(run_root),
             sorted(initial_artifacts.keys()),
+            args.enable_real_time_output,
         )
         runtime = WorkflowRuntime(spec, incremental_dump_dir=str(run_root))
-        state = runtime.run(initial_artifacts=initial_artifacts, metadata={"entry": "workflow_demo.py", "run_root": str(run_root)})
+        state = runtime.run(
+            initial_artifacts=initial_artifacts,
+            metadata={
+                "entry": "workflow_demo.py",
+                "run_root": str(run_root),
+                "enable_real_time_output": bool(args.enable_real_time_output),
+            },
+        )
         checkpoint = runtime.finalize_workflow(state)
 
         if args.dump is not None:

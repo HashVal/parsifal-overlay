@@ -21,7 +21,7 @@ import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 logger = logging.getLogger("simple_rla.openai.responses")
@@ -78,7 +78,6 @@ def _extract_output_text(data: dict) -> str:
         for c in content:
             if not isinstance(c, dict):
                 continue
-            # Responses typically uses output_text blocks.
             if c.get("type") in ("output_text", "text") and isinstance(c.get("text"), str):
                 parts.append(c["text"])
     return "\n".join(p for p in parts if p).strip()
@@ -104,7 +103,6 @@ def _extract_function_calls(data: dict) -> list[FunctionCall]:
 
         call_id = item.get("call_id") or item.get("id") or item.get("tool_call_id")
         if not isinstance(call_id, str) or not call_id:
-            # Some variants omit ids; generate a synthetic one.
             call_id = f"call_{len(calls)+1}"
 
         args = item.get("arguments")
@@ -120,6 +118,137 @@ def _extract_function_calls(data: dict) -> list[FunctionCall]:
     return calls
 
 
+def _stream_text_delta(event: dict[str, Any]) -> str:
+    candidates: list[str] = []
+    delta = event.get("delta")
+    if isinstance(delta, str):
+        candidates.append(delta)
+    elif isinstance(delta, dict):
+        text = delta.get("text")
+        if isinstance(text, str):
+            candidates.append(text)
+
+    item = event.get("item")
+    if isinstance(item, dict):
+        text = item.get("text")
+        if isinstance(text, str):
+            candidates.append(text)
+        content = item.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                text = part.get("text")
+                if isinstance(text, str):
+                    candidates.append(text)
+                delta = part.get("delta")
+                if isinstance(delta, str):
+                    candidates.append(delta)
+
+    for value in candidates:
+        if value:
+            return value
+    return ""
+
+
+def _iter_sse_events(resp: Any) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    data_lines: list[str] = []
+    for raw_line in resp:
+        line = raw_line.decode("utf-8", errors="replace")
+        if line.startswith(":"):
+            continue
+        stripped = line.strip()
+        if not stripped:
+            if not data_lines:
+                continue
+            payload = "\n".join(data_lines)
+            data_lines = []
+            if payload == "[DONE]":
+                break
+            try:
+                events.append(json.loads(payload))
+            except json.JSONDecodeError:
+                logger.debug("openai.stream.invalid_event payload=%r", payload[:200])
+            continue
+        if stripped.startswith("data:"):
+            data_lines.append(stripped[5:].lstrip())
+    if data_lines:
+        payload = "\n".join(data_lines)
+        if payload != "[DONE]":
+            try:
+                events.append(json.loads(payload))
+            except json.JSONDecodeError:
+                logger.debug("openai.stream.invalid_tail_event payload=%r", payload[:200])
+    return events
+
+
+def _create_response_streaming(
+    *,
+    req: urllib.request.Request,
+    timeout_s: int,
+    stream_observer: Callable[[str], None] | None,
+) -> ResponseResult:
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            events = _iter_sse_events(resp)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        raise OpenAIError(f"HTTP {exc.code} URL={req.full_url} body={raw[:2000]}")
+    except urllib.error.URLError as exc:
+        raise OpenAIError(f"URL error: {exc}")
+
+    final_data: dict[str, Any] | None = None
+    aggregated_text_parts: list[str] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        delta_text = _stream_text_delta(event)
+        if delta_text:
+            aggregated_text_parts.append(delta_text)
+            if stream_observer is not None:
+                try:
+                    stream_observer(delta_text)
+                except Exception:
+                    logger.exception("openai.stream_observer_failed")
+        event_type = str(event.get("type") or "")
+        if event_type in {"response.completed", "response.done", "completed", "done"}:
+            response = event.get("response")
+            if isinstance(response, dict):
+                final_data = response
+        elif {"id", "output"}.issubset(event.keys()) or "output_text" in event:
+            final_data = event
+
+    if final_data is None:
+        output_text = "".join(aggregated_text_parts).strip()
+        if not output_text:
+            raise OpenAIError("streaming response ended without a final response payload")
+        final_data = {
+            "id": "streaming_response",
+            "output_text": output_text,
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": output_text}],
+                }
+            ],
+        }
+    elif not final_data.get("output_text") and aggregated_text_parts:
+        final_data = dict(final_data)
+        final_data["output_text"] = "".join(aggregated_text_parts).strip()
+
+    rid = final_data.get("id")
+    if not isinstance(rid, str) or not rid:
+        raise OpenAIError(f"missing response id: {final_data}")
+
+    return ResponseResult(
+        response_id=rid,
+        output_text=_extract_output_text(final_data),
+        function_calls=_extract_function_calls(final_data),
+        raw=final_data,
+    )
+
+
 def create_response(
     *,
     model: str,
@@ -130,6 +259,8 @@ def create_response(
     temperature: float | None = 0.2,
     max_output_tokens: int | None = None,
     timeout_s: int = 90,
+    enable_real_time_output: bool = False,
+    stream_observer: Callable[[str], None] | None = None,
 ) -> ResponseResult:
     url = _base_url() + "/responses"
     logger.info("openai.request url=%s model=%s", url, model)
@@ -148,6 +279,8 @@ def create_response(
         payload["temperature"] = temperature
     if max_output_tokens is not None:
         payload["max_output_tokens"] = max_output_tokens
+    if enable_real_time_output:
+        payload["stream"] = True
 
     req = urllib.request.Request(
         url,
@@ -158,6 +291,9 @@ def create_response(
         },
         method="POST",
     )
+
+    if enable_real_time_output:
+        return _create_response_streaming(req=req, timeout_s=timeout_s, stream_observer=stream_observer)
 
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:

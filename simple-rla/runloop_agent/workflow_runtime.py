@@ -278,6 +278,8 @@ class WorkflowRuntime:
                 "workflow_id": state.workflow_id,
                 "transition_source": state.transition_input.source,
                 "transition_notes": list(state.transition_input.notes),
+                "run_root": state.metadata.get("run_root"),
+                "enable_real_time_output": bool(state.metadata.get("enable_real_time_output")),
             },
         )
 

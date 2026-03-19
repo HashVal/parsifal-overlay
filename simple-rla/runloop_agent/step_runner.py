@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from runloop_agent.mcp_client import McpClient
@@ -79,6 +80,35 @@ def _log_prompt_observability(obs: dict[str, Any], *, mode: str) -> None:
         f" output_schema_chars={obs.get('output_schema_chars')}"
         f" top_visible_inputs={top_inputs}"
     )
+
+
+def _build_stream_observer(ctx: StepContext):
+    if not ctx.metadata.get("enable_real_time_output"):
+        return None, None
+    run_root = str(ctx.metadata.get("run_root") or "").strip()
+    if not run_root:
+        return None, None
+    stream_path = Path(run_root) / "step_results" / f"{ctx.phase_id}__{ctx.step_id}.stream.log"
+    stream_path.parent.mkdir(parents=True, exist_ok=True)
+    chars_seen = 0
+
+    def observer(delta: str) -> None:
+        nonlocal chars_seen
+        if not isinstance(delta, str) or not delta:
+            return
+        with stream_path.open("a", encoding="utf-8") as f:
+            f.write(delta)
+        chars_seen += len(delta)
+        if chars_seen == len(delta) or chars_seen % 400 < len(delta):
+            print(
+                "[simple_rla.llm_stream]"
+                f" workflow={ctx.metadata.get('workflow_id')}"
+                f" phase={ctx.phase_id}"
+                f" step={ctx.step_id}"
+                f" chars={chars_seen}"
+            )
+
+    return observer, str(stream_path)
 
 
 def _build_final_result(
@@ -161,25 +191,34 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
             diagnostics=prompt_obs,
             error=StepErrorInfo(code="missing_model", message="llm step requires metadata.model or OPENAI_MODEL"),
         )
+    stream_observer, stream_path = _build_stream_observer(ctx)
     try:
         response = provider.generate(
             model=model,
             prompt=prompt,
             response_schema=spec.metadata.get("output_schema"),
             timeout_s=int(spec.metadata.get("timeout_s") or os.environ.get("OPENAI_TIMEOUT_S") or 90),
+            enable_real_time_output=bool(ctx.metadata.get("enable_real_time_output")),
+            stream_observer=stream_observer,
         )
     except OpenAIError as exc:
+        diagnostics = dict(prompt_obs)
+        if stream_path:
+            diagnostics["stream_log_path"] = stream_path
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.FAILED,
-            diagnostics=prompt_obs,
+            diagnostics=diagnostics,
             error=StepErrorInfo(code="model_error", message=str(exc)),
         )
+    diagnostics_extra = dict(prompt_obs)
+    if stream_path:
+        diagnostics_extra["stream_log_path"] = stream_path
     return _build_final_result(
         spec=spec,
         prompt=prompt,
         response_text=response.text,
-        diagnostics_extra=prompt_obs,
+        diagnostics_extra=diagnostics_extra,
     )
 
 
@@ -225,6 +264,7 @@ def run_llm_tool_step(
     max_turns = int(spec.metadata.get("max_model_turns") or 4)
     max_tool_calls = int(spec.metadata.get("max_tool_calls") or 4)
     timeout_s = int(spec.metadata.get("timeout_s") or os.environ.get("OPENAI_TIMEOUT_S") or 90)
+    stream_observer, stream_path = _build_stream_observer(ctx)
 
     try:
         for turn_idx in range(max_turns):
@@ -240,36 +280,49 @@ def run_llm_tool_step(
                 f" tool_calls_so_far={len(tool_calls)}"
                 f" selected_tool_count={len(model_tools)}"
             )
-            response = provider.generate_with_tools(model=model, messages=messages, tools=model_tools, timeout_s=timeout_s)
+            response = provider.generate_with_tools(
+                model=model,
+                messages=messages,
+                tools=model_tools,
+                timeout_s=timeout_s,
+                enable_real_time_output=bool(ctx.metadata.get("enable_real_time_output")),
+                stream_observer=stream_observer,
+            )
             response_text = getattr(response, "output_text", None) or ""
             requests = _extract_tool_requests(getattr(response, "raw", None))
             if not requests:
+                diagnostics_extra = {
+                    **prompt_obs,
+                    "selected_tool_count": len(model_tools),
+                    "tool_loop_message_chars": _json_size(messages),
+                    "tool_call_count": len(tool_calls),
+                }
+                if stream_path:
+                    diagnostics_extra["stream_log_path"] = stream_path
                 return _build_final_result(
                     spec=spec,
                     prompt=prompt,
                     response_text=response_text,
                     prior_messages=[],
                     tool_calls=tool_calls,
-                    diagnostics_extra={
+                    diagnostics_extra=diagnostics_extra,
+                )
+            for req in requests:
+                if len(tool_calls) >= max_tool_calls:
+                    diagnostics = {
                         **prompt_obs,
                         "selected_tool_count": len(model_tools),
                         "tool_loop_message_chars": _json_size(messages),
                         "tool_call_count": len(tool_calls),
-                    },
-                )
-            for req in requests:
-                if len(tool_calls) >= max_tool_calls:
+                    }
+                    if stream_path:
+                        diagnostics["stream_log_path"] = stream_path
                     return StepResult(
                         step_id=spec.step_id,
                         status=StepStatus.INVALID,
                         messages=messages,
                         tool_calls=tool_calls,
-                        diagnostics={
-                            **prompt_obs,
-                            "selected_tool_count": len(model_tools),
-                            "tool_loop_message_chars": _json_size(messages),
-                            "tool_call_count": len(tool_calls),
-                        },
+                        diagnostics=diagnostics,
                         error=StepErrorInfo(code="max_tool_calls_exceeded", message="tool call budget exceeded"),
                     )
                 step_tool_call, tool_messages = execute_tool_call(
@@ -281,44 +334,53 @@ def run_llm_tool_step(
                 )
                 tool_calls.append(step_tool_call)
                 messages.extend(tool_messages)
+        diagnostics = {
+            **prompt_obs,
+            "selected_tool_count": len(model_tools),
+            "tool_loop_message_chars": _json_size(messages),
+            "tool_call_count": len(tool_calls),
+        }
+        if stream_path:
+            diagnostics["stream_log_path"] = stream_path
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.INVALID,
             messages=messages,
             tool_calls=tool_calls,
-            diagnostics={
-                **prompt_obs,
-                "selected_tool_count": len(model_tools),
-                "tool_loop_message_chars": _json_size(messages),
-                "tool_call_count": len(tool_calls),
-            },
+            diagnostics=diagnostics,
             error=StepErrorInfo(code="max_model_turns_exceeded", message="model turn budget exceeded"),
         )
     except OpenAIError as exc:
+        diagnostics = {
+            **prompt_obs,
+            "selected_tool_count": len(model_tools),
+            "tool_loop_message_chars": _json_size(messages),
+            "tool_call_count": len(tool_calls),
+        }
+        if stream_path:
+            diagnostics["stream_log_path"] = stream_path
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.FAILED,
             messages=messages,
             tool_calls=tool_calls,
-            diagnostics={
-                **prompt_obs,
-                "selected_tool_count": len(model_tools),
-                "tool_loop_message_chars": _json_size(messages),
-                "tool_call_count": len(tool_calls),
-            },
+            diagnostics=diagnostics,
             error=StepErrorInfo(code="model_error", message=str(exc)),
         )
     except Exception as exc:
+        diagnostics = {
+            **prompt_obs,
+            "selected_tool_count": len(model_tools),
+            "tool_loop_message_chars": _json_size(messages),
+            "tool_call_count": len(tool_calls),
+        }
+        if stream_path:
+            diagnostics["stream_log_path"] = stream_path
         return StepResult(
             step_id=spec.step_id,
             status=StepStatus.FAILED,
             messages=messages,
             tool_calls=tool_calls,
-            diagnostics={
-                **prompt_obs,
-                "selected_tool_count": len(model_tools),
-                "tool_loop_message_chars": _json_size(messages),
-                "tool_call_count": len(tool_calls),
-            },
+            diagnostics=diagnostics,
             error=StepErrorInfo(code="tool_loop_error", message=str(exc)),
         )
