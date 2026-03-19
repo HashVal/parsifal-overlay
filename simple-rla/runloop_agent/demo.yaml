@@ -114,6 +114,48 @@ phases:
                 type: string
                 maxLength: 400
 
+      - id: extract_retrieval_context
+        type: llm_step
+        config:
+          instruction: |
+            Extract retrieval-oriented context for KB grounding from the visible inputs.
+
+            Your job is retrieval-context extraction, not case summary and not root-cause analysis.
+
+            Requirements:
+            1. Extract only items that are directly supported by the visible inputs.
+            2. Prefer concrete technical entities over broad narrative phrases.
+            3. Keep the output sparse. Do not add generic filler.
+            4. Do not infer root cause.
+            5. Prefer query-worthy signals such as platform names, subsystem names, file:line references, symbols, and short technical fault phrases.
+
+            Output limits:
+            - platforms: at most 3 items
+            - subsystems: at most 4 items
+            - signals: at most 6 items
+          output_schema:
+            type: object
+            required:
+              - platforms
+              - subsystems
+              - signals
+            properties:
+              platforms:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              subsystems:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+              signals:
+                type: array
+                maxItems: 6
+                items:
+                  type: string
+
       - id: summarize_jira_issue
         type: llm_step
         config:
@@ -146,14 +188,17 @@ phases:
           args:
             context:
               case_id: ${workflow.inputs.jira_key}
-              summary: ${artifacts.artifact:summarize_jira_issue.llm_sum_description}
+              platforms: ${artifacts.artifact:extract_retrieval_context.platforms}
+              subsystems: ${artifacts.artifact:extract_retrieval_context.subsystems}
             signals:
               - type: symptom
-                value: ${artifacts.artifact:summarize_jira_issue.issue_keywords.0}
+                value: ${artifacts.artifact:extract_retrieval_context.signals.0}
               - type: symptom
-                value: ${artifacts.artifact:summarize_jira_issue.issue_keywords.1}
+                value: ${artifacts.artifact:extract_retrieval_context.signals.1}
               - type: symptom
-                value: ${artifacts.artifact:extract_observations.key_observations.0}
+                value: ${artifacts.artifact:extract_retrieval_context.signals.2}
+              - type: symptom
+                value: ${artifacts.artifact:extract_retrieval_context.signals.3}
             hints:
               preferred_kinds:
                 - issue_pattern
