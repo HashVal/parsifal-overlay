@@ -90,23 +90,21 @@ def _build_stream_observer(ctx: StepContext):
         return None, None
     stream_path = Path(run_root) / "step_results" / f"{ctx.phase_id}__{ctx.step_id}.stream.log"
     stream_path.parent.mkdir(parents=True, exist_ok=True)
-    chars_seen = 0
+    stream_path.write_text("", encoding="utf-8")
+    print(
+        "[simple_rla.llm_stream]"
+        f" workflow={ctx.metadata.get('workflow_id')}"
+        f" phase={ctx.phase_id}"
+        f" step={ctx.step_id}"
+        f" stream_log={stream_path}"
+    )
 
     def observer(delta: str) -> None:
-        nonlocal chars_seen
         if not isinstance(delta, str) or not delta:
             return
         with stream_path.open("a", encoding="utf-8") as f:
             f.write(delta)
-        chars_seen += len(delta)
-        if chars_seen == len(delta) or chars_seen % 400 < len(delta):
-            print(
-                "[simple_rla.llm_stream]"
-                f" workflow={ctx.metadata.get('workflow_id')}"
-                f" phase={ctx.phase_id}"
-                f" step={ctx.step_id}"
-                f" chars={chars_seen}"
-            )
+            f.flush()
 
     return observer, str(stream_path)
 
