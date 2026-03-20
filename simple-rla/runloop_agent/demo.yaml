@@ -72,6 +72,10 @@ phases:
       - id: extract_observations
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_key
+            - jira_properties
+            - signature_logs
           instruction: |
             Extract a compact observation bundle from the visible inputs.
 
@@ -181,6 +185,11 @@ phases:
       - id: extract_retrieval_context
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs
+            - artifact:extract_observations
+            - artifact:extract_platform_context
           instruction: |
             Extract retrieval-oriented context for KB grounding from the visible inputs.
 
@@ -231,6 +240,8 @@ phases:
       - id: summarize_jira_issue
         type: llm_step
         config:
+          visible_artifacts:
+            - artifact:extract_observations
           instruction: |
             Summarize the Jira case based on the extracted observations.
 
@@ -313,6 +324,13 @@ phases:
       - id: propose_root_cause
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_properties
+            - artifact:extract_observations
+            - artifact:extract_platform_context
+            - artifact:extract_retrieval_context
+            - artifact:summarize_jira_issue
+            - kb_grounding
           instruction: |
             Propose constrained root-cause hypotheses for the current case.
 
