@@ -33,7 +33,6 @@ from .file_tools_server import (
     _ERROR_RULES,
     _SUBSYSTEM_RULES,
     _extract_essential,
-    _extract_trace_excerpt,
     _file_grep,
     _file_head,
     _file_read_range,
@@ -61,7 +60,9 @@ _FATAL_EVENT_PRIORITY = {
 def _extract_functions_from_trace(trace_excerpt: list[str], *, max_functions: int = 8) -> list[str]:
     out: list[str] = []
     for line in trace_excerpt:
-        m = re.search(r"\??\s*([A-Za-z0-9_.$]+)\+0x[0-9a-fA-F]+/[0-9a-fA-Fx]+", line)
+        m = re.search(r"\?\s*([A-Za-z0-9_.$]+)\+0x[0-9a-fA-F]+/[0-9a-fA-Fx]+", line)
+        if not m:
+            m = re.search(r"([A-Za-z0-9_.$]+)\+0x[0-9a-fA-F]+/[0-9a-fA-Fx]+", line)
         if not m:
             continue
         fn = m.group(1)
@@ -74,8 +75,11 @@ def _extract_functions_from_trace(trace_excerpt: list[str], *, max_functions: in
 
 def _extract_modules_from_text(lines: list[str], *, max_modules: int = 8) -> list[str]:
     out: list[str] = []
+    skip = {"U", "E", "TASK"}
     for line in lines:
         for mod in re.findall(r"\[([A-Za-z0-9_]+)\]", line):
+            if mod in skip:
+                continue
             if mod not in out:
                 out.append(mod)
             if len(out) >= max_modules:
@@ -88,6 +92,36 @@ def _compact_event(event: dict[str, Any], *, max_excerpt_lines: int = 12, max_tr
     compact["raw_excerpt"] = list((event.get("raw_excerpt") or [])[:max_excerpt_lines])
     compact["trace_excerpt"] = list((event.get("trace_excerpt") or [])[:max_trace_lines])
     return compact
+
+
+def _extract_trace_excerpt(all_lines: list[str], call_trace_line: int, *, max_frames: int = 12) -> list[str]:
+    excerpt: list[str] = []
+    started = False
+    for idx in range(call_trace_line, min(len(all_lines), call_trace_line + 80)):
+        line = all_lines[idx]
+        stripped = line.strip()
+        if not stripped:
+            if started and excerpt:
+                break
+            continue
+        if not started:
+            if "Call Trace:" in stripped:
+                started = True
+            continue
+        if stripped in {"<TASK>", "</TASK>"}:
+            continue
+        if re.search(r"^(RIP:|Code:|RSP:|RAX:|RDX:|RBP:|FS:|CS:|CR2:|PKRU:|Modules linked in:|---\[ end trace)", stripped):
+            if excerpt:
+                break
+            continue
+        if "+0x" not in stripped:
+            if excerpt:
+                break
+            continue
+        excerpt.append(stripped)
+        if len(excerpt) >= max_frames:
+            break
+    return excerpt
 
 
 def _scan_crash_events(path: Path, all_lines: list[str], *, max_events: int) -> list[dict[str, Any]]:
@@ -133,7 +167,7 @@ def _scan_crash_events(path: Path, all_lines: list[str], *, max_events: int) -> 
         start_line = cluster[0]["line"]
         end_line = cluster[-1]["line"]
         raw_excerpt = _make_context(all_lines, int(anchor["line"]), 3, 16)
-        trace_excerpt = _extract_trace_excerpt(all_lines, start_line, end_line)
+        trace_excerpt = _extract_trace_excerpt(all_lines, int(call_trace["line"])) if call_trace is not None else []
         modules = _extract_modules_from_text(raw_excerpt + trace_excerpt)
         functions = _extract_functions_from_trace(trace_excerpt)
         event = {
@@ -301,6 +335,7 @@ def _tool_log_extract_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
     env_map: dict[tuple[str, str], dict[str, Any]] = {}
     crash_map: dict[str, dict[str, Any]] = {}
     error_map: dict[tuple[str, str], dict[str, Any]] = {}
+    crash_trace_sources: dict[str, dict[str, dict[str, Any]]] = {}
 
     for raw_path in raw_paths[:max_files]:
         path_text = str(raw_path)
@@ -351,6 +386,11 @@ def _tool_log_extract_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
                     "modules": list(event.get("modules") or [])[:8],
                     "exists_in": [],
                 })
+                trace_sources = crash_trace_sources.setdefault(key, {})
+                trace_sources[source_name] = {
+                    "trace_excerpt": list(event.get("trace_excerpt") or [])[:8],
+                    "functions": functions[:8],
+                }
                 if source_name not in bucket["exists_in"]:
                     bucket["exists_in"].append(source_name)
                 mode = str(event.get("event_kind") or "").strip()
@@ -374,9 +414,46 @@ def _tool_log_extract_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
             errors.append({"path": path_text, "error": str(exc)})
             files.append({"path": path_text, "ok": False, "error": str(exc)})
 
+    merged_crash_events: list[dict[str, Any]] = []
+    for key, item in list(crash_map.items())[:8]:
+        sources = crash_trace_sources.get(key, {})
+        common_functions: list[str] = []
+        common_excerpt: list[str] = []
+        if sources:
+            func_sets = [set(v.get("functions") or []) for v in sources.values() if v.get("functions")]
+            if func_sets:
+                common_functions = [fn for fn in (next(iter(func_sets)).copy()) if all(fn in s for s in func_sets)]
+            excerpt_lists = [list(v.get("trace_excerpt") or []) for v in sources.values() if v.get("trace_excerpt")]
+            if excerpt_lists:
+                shortest = min(len(x) for x in excerpt_lists)
+                for idx in range(shortest):
+                    candidate = excerpt_lists[0][idx]
+                    if all(lst[idx] == candidate for lst in excerpt_lists[1:]):
+                        common_excerpt.append(candidate)
+                    else:
+                        break
+        trace_view = {
+            "present_in": list(item.get("exists_in") or []),
+            "shared_functions": common_functions[:8],
+            "shared_excerpt": common_excerpt[:6],
+            "per_source_excerpt": {
+                source: list((payload.get("trace_excerpt") or [])[:6])
+                for source, payload in sources.items()
+                if payload.get("trace_excerpt")
+            },
+            "similarity": "high" if len(sources) >= 2 and common_excerpt else ("partial" if len(sources) >= 2 else "single"),
+        }
+        merged_item = dict(item)
+        merged_item["trace"] = trace_view
+        if trace_view["shared_functions"]:
+            merged_item["functions"] = trace_view["shared_functions"]
+        if trace_view["shared_excerpt"]:
+            merged_item["trace_excerpt"] = trace_view["shared_excerpt"]
+        merged_crash_events.append(merged_item)
+
     merged = {
         "environment": list(env_map.values())[:12],
-        "crash_events": list(crash_map.values())[:8],
+        "crash_events": merged_crash_events,
         "error_events": list(error_map.values())[:12],
         "subsystem_tags": merged_subsystems[:8],
         "functions": merged_functions[:16],
