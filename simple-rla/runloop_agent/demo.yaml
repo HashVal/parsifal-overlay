@@ -491,3 +491,99 @@ phases:
                   type: string
               confidence_overall:
                 type: string
+
+      - id: extract_evidence_chains
+        type: llm_step
+        config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs.merged
+            - artifact:extract_observations
+            - artifact:extract_platform_context
+            - artifact:extract_cross_layer_conflicts
+            - artifact:summarize_jira_issue
+            - artifact:propose_root_cause
+          instruction: |
+            Derive testable evidence chains from the proposed root-cause artifact.
+
+            Your job is not to invent a new root cause. Treat the proposed primary hypothesis as a candidate explanation to test, not as established truth.
+
+            Requirements:
+            1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
+            2. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
+            3. Identify the weakest links where the current evidence is insufficient.
+            4. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
+            5. Keep the chain concise and technical. Do not restate the whole case narrative.
+            6. Do not introduce unsupported new hypotheses.
+
+            Output limits:
+            - premises: at most 5 items
+            - supported_links: at most 5 items
+            - weak_links: at most 4 items
+            - discriminating_checks: at most 4 items
+            - alternative_hypotheses_to_keep_alive: at most 2 items
+          output_schema:
+            type: object
+            required:
+              - primary_hypothesis_chain
+              - alternative_hypotheses_to_keep_alive
+            properties:
+              primary_hypothesis_chain:
+                type: object
+                required:
+                  - hypothesis
+                  - premises
+                  - supported_links
+                  - weak_links
+                  - discriminating_checks
+                properties:
+                  hypothesis:
+                    type: string
+                  premises:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: string
+                  supported_links:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: object
+                      required:
+                        - claim
+                        - supporting_evidence
+                      properties:
+                        claim:
+                          type: string
+                          maxLength: 200
+                        supporting_evidence:
+                          type: array
+                          maxItems: 4
+                          items:
+                            type: string
+                  weak_links:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+                  discriminating_checks:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+              alternative_hypotheses_to_keep_alive:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  required:
+                    - hypothesis
+                    - why_not_eliminated
+                  properties:
+                    hypothesis:
+                      type: string
+                    why_not_eliminated:
+                      type: array
+                      maxItems: 3
+                      items:
+                        type: string
