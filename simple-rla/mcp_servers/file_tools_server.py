@@ -392,6 +392,29 @@ def _find_match(line: str, compiled_rules: list[tuple[str, re.Pattern[str]]]) ->
     return None
 
 
+def _extract_trace_excerpt(all_lines: list[str], start_line: int, end_line: int, *, max_frames: int = 8) -> list[str]:
+    excerpt: list[str] = []
+    in_trace = False
+    for idx in range(max(0, start_line - 1), min(len(all_lines), end_line + 24)):
+        line = all_lines[idx]
+        if not in_trace and re.search(r"\bCall Trace:\b", line, re.IGNORECASE):
+            in_trace = True
+            continue
+        if not in_trace:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            if excerpt:
+                break
+            continue
+        if re.search(r"\bRIP:\b", stripped, re.IGNORECASE):
+            continue
+        excerpt.append(stripped)
+        if len(excerpt) >= max_frames:
+            break
+    return excerpt
+
+
 def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after: int, max_items: int, cluster_gap: int = 20) -> list[dict[str, Any]]:
     compiled_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _FATAL_RULES]
     headline_priority = {
@@ -447,11 +470,15 @@ def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after
         anchor_line = headline["line"] if headline is not None else trace_anchor["line"]
         context = _make_context(all_lines, anchor_line, before, after)
         cluster_kind = headline["kind"] if headline is not None else trace_anchor["kind"]
+        start_line = cluster[0]["line"]
+        end_line = cluster[-1]["line"]
+        trace_excerpt = _extract_trace_excerpt(all_lines, start_line, end_line)
         out.append({
             "id": _sig_id(path, cluster_kind, anchor_line, (headline or trace_anchor)["text"]),
             "cluster_kind": cluster_kind,
-            "start_line": cluster[0]["line"],
-            "end_line": cluster[-1]["line"],
+            "bundle_type": "fatal_with_trace" if trace_anchor is not None else "fatal_only",
+            "start_line": start_line,
+            "end_line": end_line,
             "headline": {
                 "kind": headline["kind"],
                 "line": headline["line"],
@@ -462,6 +489,7 @@ def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after
                 "line": trace_anchor["line"],
                 "text": trace_anchor["text"],
             } if trace_anchor is not None else None,
+            "trace_excerpt": trace_excerpt,
             "context": context,
         })
     return out
