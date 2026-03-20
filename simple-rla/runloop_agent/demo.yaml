@@ -207,8 +207,14 @@ phases:
             2. Prefer concrete technical entities over broad narrative phrases.
             3. Keep the output sparse. Do not add generic filler.
             4. Do not infer root cause.
-            5. Prefer query-worthy signals such as subsystem names, file:line references, symbols, and short technical fault phrases.
-            6. Reuse normalized platform results when present.
+            5. The `signals` field is for KB-friendly query keywords and short technical phrases, not raw log tokens.
+            6. Prefer broad but discriminative retrieval terms such as driver names, subsystem names, component names, mode names, and short fault phrases.
+            7. Avoid overly specific strings such as exact cmdline tokens, exact file paths, exact line numbers, or long raw log excerpts unless they are clearly standard KB keywords.
+            8. Reuse normalized platform results when present.
+
+            Signal selection guidance:
+            - Good examples: `xe`, `i915`, `drm`, `gpu`, `kernel BUG`, `hybrid mode`, `integrated mode`, `driver blacklist`
+            - Avoid as primary signals: `drivers/gpu/drm/drm_gem.c:181`, `xe.force_probe=*`, `modprobe.blacklist=i915`
 
             Output limits:
             - platforms: at most 4 items
