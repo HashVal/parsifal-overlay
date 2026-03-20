@@ -117,7 +117,7 @@ def _visible_inputs_for_step(step: BaseStep, artifacts: dict[str, Any]) -> dict[
         for key, value in artifacts.items()
         if not str(key).startswith("step:")
     }
-    allowlist = step.metadata.get("visible_artifacts")
+    allowlist = (step.spec.metadata or {}).get("visible_artifacts")
     if isinstance(allowlist, list) and allowlist:
         selected: dict[str, Any] = {}
         for key in allowlist:
