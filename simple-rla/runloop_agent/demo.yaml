@@ -217,6 +217,16 @@ phases:
             3. Write a short technical summary of the case.
             4. If the evidence is incomplete or contradictory, reflect that clearly.
             5. Do not introduce unsupported root-cause claims.
+
+            Important:
+            - Do not mention schema fields such as type, properties, required, items, object, or array.
+            - Do not discuss the JSON format.
+            - Do not output planning text, self-check text, or internal reasoning.
+            - Return only the final JSON object with the required keys.
+
+            Output limits:
+            - issue_keywords: at most 5 items
+            - llm_sum_description: at most 3 short sentences
           output_schema:
             type: object
             required:
@@ -225,10 +235,12 @@ phases:
             properties:
               issue_keywords:
                 type: array
+                maxItems: 5
                 items:
                   type: string
               llm_sum_description:
                 type: string
+                maxLength: 400
 
       - id: kb_ground_case
         type: tool_step
