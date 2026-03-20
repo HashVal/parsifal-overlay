@@ -75,7 +75,7 @@ phases:
           visible_artifacts:
             - jira_key
             - jira_properties
-            - signature_logs
+            - signature_logs.merged
           instruction: |
             Extract a compact observation bundle from the visible inputs.
 

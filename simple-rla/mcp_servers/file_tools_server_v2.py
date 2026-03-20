@@ -272,6 +272,13 @@ def _tool_log_extract_evidence(args: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _normalized_text(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"0x[0-9a-fA-F]+", "0xADDR", text)
+    text = re.sub(r"\b\d+\b", "N", text)
+    return text
+
+
 def _tool_log_extract_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
     raw_paths = args.get("paths")
     if not isinstance(raw_paths, list) or not raw_paths:
@@ -291,9 +298,13 @@ def _tool_log_extract_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
     merged_functions: list[str] = []
     merged_failure_modes: list[str] = []
     errors: list[dict[str, Any]] = []
+    env_map: dict[tuple[str, str], dict[str, Any]] = {}
+    crash_map: dict[str, dict[str, Any]] = {}
+    error_map: dict[tuple[str, str], dict[str, Any]] = {}
 
     for raw_path in raw_paths[:max_files]:
         path_text = str(raw_path)
+        source_name = Path(path_text).name
         try:
             result = _tool_log_extract_evidence({
                 "path": path_text,
@@ -307,26 +318,76 @@ def _tool_log_extract_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
                 tag_text = str(tag).strip()
                 if tag_text and tag_text not in merged_subsystems:
                     merged_subsystems.append(tag_text)
+            env = result.get("environment") or {}
+            for key in ("kernel_version", "cmdline", "dmi", "hostname"):
+                value = env.get(key)
+                if value in (None, "", [], {}):
+                    continue
+                bucket = env_map.setdefault((key, _normalized_text(value)), {"field": key, "value": value, "exists_in": []})
+                if source_name not in bucket["exists_in"]:
+                    bucket["exists_in"].append(source_name)
+            for hint in env.get("driver_hints", []) or []:
+                bucket = env_map.setdefault(("driver_hint", _normalized_text(hint)), {"field": "driver_hint", "value": hint, "exists_in": []})
+                if source_name not in bucket["exists_in"]:
+                    bucket["exists_in"].append(source_name)
             for event in result.get("crash_events", []) or []:
+                headline = ((event.get("headline") or {}).get("text") or "")
+                rip_text = ((event.get("rip") or {}).get("text") or "")
+                functions = list(event.get("functions") or [])
+                key = "|".join([
+                    str(event.get("event_kind") or ""),
+                    _normalized_text(headline),
+                    _normalized_text(rip_text),
+                    ",".join(functions[:4]),
+                ])
+                bucket = crash_map.setdefault(key, {
+                    "event_kind": event.get("event_kind"),
+                    "bundle_type": event.get("bundle_type"),
+                    "headline": event.get("headline"),
+                    "rip": event.get("rip"),
+                    "call_trace": event.get("call_trace"),
+                    "trace_excerpt": list(event.get("trace_excerpt") or [])[:6],
+                    "functions": functions[:8],
+                    "modules": list(event.get("modules") or [])[:8],
+                    "exists_in": [],
+                })
+                if source_name not in bucket["exists_in"]:
+                    bucket["exists_in"].append(source_name)
                 mode = str(event.get("event_kind") or "").strip()
                 if mode and mode not in merged_failure_modes:
                     merged_failure_modes.append(mode)
-                for fn in event.get("functions", []) or []:
+                for fn in functions:
                     fn_text = str(fn).strip()
                     if fn_text and fn_text not in merged_functions:
                         merged_functions.append(fn_text)
+            for event in result.get("error_events", []) or []:
+                key = (str(event.get("kind") or ""), _normalized_text(event.get("text") or ""))
+                bucket = error_map.setdefault(key, {
+                    "kind": event.get("kind"),
+                    "text": event.get("text"),
+                    "context": list(event.get("context") or [])[:4],
+                    "exists_in": [],
+                })
+                if source_name not in bucket["exists_in"]:
+                    bucket["exists_in"].append(source_name)
         except Exception as exc:
             errors.append({"path": path_text, "error": str(exc)})
             files.append({"path": path_text, "ok": False, "error": str(exc)})
 
+    merged = {
+        "environment": list(env_map.values())[:12],
+        "crash_events": list(crash_map.values())[:8],
+        "error_events": list(error_map.values())[:12],
+        "subsystem_tags": merged_subsystems[:8],
+        "functions": merged_functions[:16],
+        "failure_modes": merged_failure_modes[:8],
+    }
     return {
         "profile": profile,
         "file_count": len(files),
         "ok_file_count": sum(1 for item in files if item.get("ok")),
+        "merged": merged,
         "files": files,
-        "merged_subsystems": merged_subsystems[:8],
-        "merged_functions": merged_functions[:16],
-        "merged_failure_modes": merged_failure_modes[:8],
         "errors": errors,
     }
 

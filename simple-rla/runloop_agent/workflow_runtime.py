@@ -108,6 +108,22 @@ class PhaseTransition:
 log = logging.getLogger("simple_rla.workflow_runtime")
 
 
+def _lookup_visible_path(root: Any, parts: list[str]) -> Any:
+    current = root
+    for part in parts:
+        if isinstance(current, dict):
+            if part not in current:
+                raise KeyError(part)
+            current = current[part]
+            continue
+        if isinstance(current, list):
+            index = int(part)
+            current = current[index]
+            continue
+        raise KeyError(part)
+    return current
+
+
 def _visible_inputs_for_step(step: BaseStep, artifacts: dict[str, Any]) -> dict[str, Any]:
     step_type = step.__class__.__name__
     if step_type not in {"LLMStep", "LLMToolStep"}:
@@ -120,10 +136,18 @@ def _visible_inputs_for_step(step: BaseStep, artifacts: dict[str, Any]) -> dict[
     allowlist = (step.spec.metadata or {}).get("visible_artifacts")
     if isinstance(allowlist, list) and allowlist:
         selected: dict[str, Any] = {}
-        for key in allowlist:
-            key_text = str(key)
+        for raw_key in allowlist:
+            key_text = str(raw_key)
             if key_text in visible:
                 selected[key_text] = visible[key_text]
+                continue
+            parts = key_text.split(".")
+            if not parts or parts[0] not in visible:
+                continue
+            try:
+                selected[key_text] = _lookup_visible_path(visible[parts[0]], parts[1:])
+            except Exception:
+                continue
         return selected
     return visible
 
