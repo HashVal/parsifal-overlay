@@ -67,7 +67,6 @@ def _resolve_value(value: Any, ctx: StepContext) -> Any:
 
 
 def _resolve_repeat_template(template: Any, item: Any, ctx: StepContext) -> Any:
-    del ctx
     if isinstance(template, str):
         if template == "${item}":
             return item
