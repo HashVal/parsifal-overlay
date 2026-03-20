@@ -40,6 +40,7 @@ def main() -> None:
     parser.add_argument("--config-file", default=str(Path(__file__).with_name("example.toml")), help="Path to unified runtime+mcp toml config")
     parser.add_argument("--dump", nargs="?", const="__DEFAULT__", default=None, help="Dump run artifacts to dir (default: ./artifacts/runloop/<workflow>/<timestamp>)")
     parser.add_argument("--initial-artifact", action="append", default=[], help="Extra initial artifact in key=value form")
+    parser.add_argument("--platform-inventory", default=None, help="Path to platform inventory yaml/text to inject as initial artifact 'platform_inventory'")
     parser.add_argument("--log-level", default="INFO", help="DEBUG|INFO|WARNING|ERROR")
     parser.add_argument("--enable-real-time-output", action="store_true", help="Enable streaming debug output for llm steps")
     args = parser.parse_args()
@@ -77,14 +78,18 @@ def main() -> None:
                 raise ValueError(f"invalid --initial-artifact: {item!r}")
             key, value = item.split("=", 1)
             initial_artifacts[key] = value
+        if args.platform_inventory:
+            inventory_path = Path(args.platform_inventory).expanduser().resolve()
+            initial_artifacts["platform_inventory"] = inventory_path.read_text(encoding="utf-8")
 
         log.info(
-            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s realtime_output=%s",
+            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s realtime_output=%s platform_inventory=%s",
             args.config,
             spec.workflow_id,
             str(run_root),
             sorted(initial_artifacts.keys()),
             args.enable_real_time_output,
+            args.platform_inventory,
         )
         runtime = WorkflowRuntime(spec, incremental_dump_dir=str(run_root))
         state = runtime.run(
