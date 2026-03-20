@@ -124,6 +124,10 @@ phases:
       - id: extract_platform_context
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs
+            - platform_inventory
           instruction: |
             Extract normalized platform context from the visible inputs.
 
