@@ -58,12 +58,13 @@ phases:
       - id: extract_log_signatures
         type: tool_step
         config:
-          tool: log_extract_signatures_batch
+          tool: log_extract_evidence_batch
           args:
             paths: ${artifacts.artifact_attachments}
             profile: kernel
-            max_total_signatures_per_file: 12
-            max_chars_per_file: 4000
+            max_events_per_file: 4
+            max_error_events_per_file: 6
+            max_chars_per_file: 12000
             max_files: 8
           outputs:
             artifact_key: signature_logs

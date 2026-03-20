@@ -15,7 +15,7 @@ artifacts_root = "./artifacts/runloop"
 
 [mcp.servers.files]
 command = "python3"
-args = ["-m", "mcp_servers.file_tools_server"]
+args = ["-m", "mcp_servers.file_tools_server_v2"]
 
 [mcp.servers.files.env]
 FILE_TOOLS_ROOT = "./artifacts/runloop"
