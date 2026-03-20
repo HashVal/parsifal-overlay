@@ -114,6 +114,53 @@ phases:
                 type: string
                 maxLength: 400
 
+      - id: extract_platform_context
+        type: llm_step
+        config:
+          instruction: |
+            Extract normalized platform context from the visible inputs.
+
+            Your job is platform normalization, not root-cause analysis.
+
+            You will receive:
+            - case evidence from Jira and log-derived artifacts
+            - a platform inventory with axes, canonical platform names, and aliases
+
+            Requirements:
+            1. Match only platforms that are directly supported by the visible inputs.
+            2. Normalize matches to canonical names from the platform inventory.
+            3. Keep CPU/host platforms separate from GPU platforms.
+            4. CPU and GPU platforms may both be present at the same time.
+            5. Do not guess unsupported platforms.
+            6. If unsure, leave the list empty.
+
+            Output limits:
+            - cpu_platforms: at most 3 items
+            - gpu_platforms: at most 3 items
+            - platform_evidence: at most 4 short items
+          output_schema:
+            type: object
+            required:
+              - cpu_platforms
+              - gpu_platforms
+              - platform_evidence
+            properties:
+              cpu_platforms:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              gpu_platforms:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              platform_evidence:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+
       - id: extract_retrieval_context
         type: llm_step
         config:
@@ -128,9 +175,10 @@ phases:
             3. Keep the output sparse. Do not add generic filler.
             4. Do not infer root cause.
             5. Prefer query-worthy signals such as platform names, subsystem names, file:line references, symbols, and short technical fault phrases.
+            6. Reuse normalized platform results when present.
 
             Output limits:
-            - platforms: at most 3 items
+            - platforms: at most 4 items
             - subsystems: at most 4 items
             - signals: at most 6 items
           output_schema:
@@ -142,7 +190,7 @@ phases:
             properties:
               platforms:
                 type: array
-                maxItems: 3
+                maxItems: 4
                 items:
                   type: string
               subsystems:

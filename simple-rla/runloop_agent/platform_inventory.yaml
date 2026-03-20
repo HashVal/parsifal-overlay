@@ -1,0 +1,29 @@
+version: 1
+
+axes:
+  cpu_platforms:
+    description: Host / CPU / SoC platforms
+    items:
+      - canonical: RPL
+        aliases:
+          - RPL
+          - Raptor Lake
+          - Raptor Lake-P
+          - RaptorLake
+      - canonical: MTL
+        aliases:
+          - MTL
+          - Meteor Lake
+          - MeteorLake
+
+  gpu_platforms:
+    description: GPU / graphics platforms
+    items:
+      - canonical: BMG
+        aliases:
+          - BMG
+          - Battlemage
+      - canonical: DG2
+        aliases:
+          - DG2
+          - Alchemist
