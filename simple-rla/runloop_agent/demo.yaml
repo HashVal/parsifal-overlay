@@ -298,14 +298,10 @@ phases:
               platforms: ${artifacts.artifact:extract_retrieval_context.platforms}
               subsystems: ${artifacts.artifact:extract_retrieval_context.subsystems}
             signals:
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.0}
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.1}
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.2}
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.3}
+              $repeat: ${artifacts.artifact:extract_retrieval_context.signals}
+              template:
+                type: symptom
+                value: ${item}
             hints:
               preferred_kinds:
                 - issue_pattern
