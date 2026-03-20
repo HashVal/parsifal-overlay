@@ -298,7 +298,7 @@ phases:
             - artifact:extract_platform_context
             - artifact:summarize_jira_issue
           instruction: |
-            Extract cross-layer configuration, activation, resource, and ownership conflicts from the visible inputs.
+            Extract explicit cross-layer contradictions and policy mismatches from the visible inputs.
 
             Your job is not root-cause analysis, not KB retrieval, and not case summary.
 
@@ -313,18 +313,19 @@ phases:
             Requirements:
             1. Extract only facts directly supported by the visible inputs.
             2. Separate activation facts, policy facts, and resource/namespace facts.
-            3. Identify conflicts or tensions only when at least two fact groups interact.
-            4. Do not claim a root cause.
-            5. Do not restate generic observations without a cross-layer relationship.
-            6. Prefer short, system-level statements over narrative prose.
-            7. If evidence is incomplete, put the gap into missing_checks instead of over-claiming.
+            3. Prioritize explicit contradictions where an active or required path is blocked, redirected, blacklisted, or mismatched by policy.
+            4. Prefer ownership mismatch, policy-vs-activation mismatch, and working-vs-failing mode isolation over generic firmware_vs_driver wording.
+            5. State each contradiction in plain technical language, not abstract labels.
+            6. Do not claim a root cause.
+            7. Do not restate generic observations without a cross-layer contradiction.
+            8. If evidence is incomplete, put the gap into missing_checks instead of over-claiming.
 
-            Conflict patterns to consider:
-            - activation path vs driver ownership policy
-            - firmware-exposed device path vs blacklisted or disabled driver path
-            - mode-dependent resource path vs module selection policy
-            - resource allocation requirements vs observed allocation failures
-            - working/failing mode differences that imply a specific path is implicated
+            Contradiction patterns to consider:
+            - an enabled or active device/path vs a blacklisted or disabled driver path
+            - a forced driver policy vs the device ownership path implied by the failing modes
+            - a working/failing mode difference that isolates a conflicting driver or configuration path
+            - a required resource path vs a policy or allocation state that makes that path invalid
+            - a firmware-exposed path that conflicts with the software ownership or initialization policy
 
             Output limits:
             - activation_facts: at most 4 items
@@ -362,13 +363,17 @@ phases:
                 items:
                   type: object
                   required:
-                    - title
+                    - conflict_type
+                    - statement
                     - why_it_matters
                     - confidence
                   properties:
-                    title:
+                    conflict_type:
                       type: string
-                      maxLength: 120
+                      enum: [ownership_mismatch, policy_vs_activation, resource_vs_policy, firmware_vs_driver]
+                    statement:
+                      type: string
+                      maxLength: 200
                     why_it_matters:
                       type: array
                       maxItems: 4
@@ -433,7 +438,8 @@ phases:
             Propose constrained root-cause hypotheses for the current case.
 
             Use the extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
-            Treat the cross-layer conflict artifact as the authoritative summary of system-level tensions and contradictions.
+            Treat the cross-layer conflict artifact as the authoritative summary of explicit system-level contradictions and policy mismatches.
+            Prefer hypotheses that explain explicit policy-vs-activation or ownership contradictions over hypotheses that merely restate the crash location.
             Do not present the answer as final truth.
             Produce hypotheses only when supported by visible evidence.
             If the evidence is weak or conflicting, say so explicitly.
