@@ -130,7 +130,7 @@ phases:
         config:
           visible_artifacts:
             - jira_properties
-            - signature_logs
+            - signature_logs.merged
             - platform_inventory
           instruction: |
             Extract normalized platform context from the visible inputs.
@@ -187,7 +187,7 @@ phases:
         config:
           visible_artifacts:
             - jira_properties
-            - signature_logs
+            - signature_logs.merged
             - artifact:extract_observations
             - artifact:extract_platform_context
           instruction: |
