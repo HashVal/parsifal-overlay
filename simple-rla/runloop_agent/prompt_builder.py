@@ -10,6 +10,51 @@ def _json_block(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
+def _summarize_schema(schema: Any) -> list[str]:
+    if not isinstance(schema, dict) or not schema:
+        return ["Return one JSON object."]
+
+    schema_type = schema.get("type")
+    required = schema.get("required") or []
+    properties = schema.get("properties") or {}
+
+    lines: list[str] = []
+    if schema_type == "object" and isinstance(properties, dict) and properties:
+        lines.append("Return one JSON object with these fields:")
+        for name, prop in properties.items():
+            if not isinstance(prop, dict):
+                lines.append(f"- {name}: value")
+                continue
+            parts: list[str] = []
+            prop_type = prop.get("type")
+            if prop_type == "array":
+                item_type = None
+                items = prop.get("items")
+                if isinstance(items, dict):
+                    item_type = items.get("type")
+                if item_type:
+                    parts.append(f"array of {item_type}s")
+                else:
+                    parts.append("array")
+                if "maxItems" in prop:
+                    parts.append(f"at most {prop['maxItems']} items")
+            elif prop_type:
+                parts.append(str(prop_type))
+                if "maxLength" in prop:
+                    parts.append(f"max {prop['maxLength']} chars")
+            else:
+                parts.append("value")
+            lines.append(f"- {name}: {', '.join(parts)}")
+        if required:
+            lines.append("Required fields: " + ", ".join(str(x) for x in required))
+    else:
+        lines.append("Return a valid JSON value that matches the required structure.")
+        if schema_type:
+            lines.append(f"Top-level type: {schema_type}")
+    lines.append("Return only the final JSON answer.")
+    return lines
+
+
 def _section(title: str, body: str | list[str]) -> list[str]:
     lines = [f"[{title}]"]
     if isinstance(body, str):
@@ -55,7 +100,7 @@ def build_step_prompt(spec: StepSpec, ctx: StepContext) -> str:
             "Use tools only when needed. After any tool use, return the final answer under the output contract.",
         ]))
     lines.extend(_section("output_contract", [
-        _json_block(output_schema) if output_schema else "Return a JSON object.",
+        *_summarize_schema(output_schema),
         "Final answer format: JSON only.",
     ]))
     return "\n".join(lines)
