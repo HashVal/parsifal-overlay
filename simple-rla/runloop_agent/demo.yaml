@@ -514,9 +514,11 @@ phases:
             1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
             2. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
             3. Identify the weakest links where the current evidence is insufficient.
-            4. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
-            5. Keep the chain concise and technical. Do not restate the whole case narrative.
-            6. Do not introduce unsupported new hypotheses.
+            4. Prefer hypotheses that explain all reported failing modes together and also fit the working-mode contrast, rather than hypotheses that explain only a subset of failing modes.
+            5. If a candidate explanation fits only one failing mode while another explanation better covers all failing modes and the working mode, keep the narrower explanation as alternative rather than treating it as the main chain.
+            6. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
+            7. Keep the chain concise and technical. Do not restate the whole case narrative.
+            8. Do not introduce unsupported new hypotheses.
 
             Output limits:
             - premises: at most 5 items
