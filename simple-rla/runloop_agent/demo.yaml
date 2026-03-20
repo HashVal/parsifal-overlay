@@ -268,6 +268,8 @@ phases:
             - Do not mention schema fields such as type, properties, required, items, object, or array.
             - Do not discuss the JSON format.
             - Do not output planning text, self-check text, or internal reasoning.
+            - Do not wrap the answer in markdown code fences.
+            - Do not repeat the answer or emit multiple JSON objects.
             - Return only the final JSON object with the required keys.
 
             Output limits:
