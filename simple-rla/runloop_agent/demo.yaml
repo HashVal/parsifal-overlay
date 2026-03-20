@@ -76,6 +76,11 @@ phases:
 
             Your job is evidence extraction, not diagnosis.
 
+            Dependency rules:
+            1. Treat upstream artifacts as input data, not as hypotheses to audit or re-derive.
+            2. Do not re-run platform normalization, retrieval selection, or root-cause reasoning in this step.
+            3. Do not question whether a previous step was correct; only extract what is explicitly supported by the visible inputs.
+
             Requirements:
             1. Extract only observations that are directly supported by the visible inputs.
             2. Prefer precise technical signals over broad narrative restatement.
@@ -127,6 +132,12 @@ phases:
             - case evidence from Jira and log-derived artifacts
             - a platform inventory with axes, canonical platform names, and aliases
 
+            Dependency rules:
+            1. This step is the only place in the analysis phase that should normalize platform names.
+            2. Use the visible evidence and the platform inventory only.
+            3. Do not predict what later steps may need.
+            4. Do not add aliases, variants, or board strings unless they normalize to a canonical platform in the inventory.
+
             Requirements:
             1. Match only platforms that are directly supported by the visible inputs.
             2. Normalize matches to canonical names from the platform inventory.
@@ -168,14 +179,21 @@ phases:
           instruction: |
             Extract retrieval-oriented context for KB grounding from the visible inputs.
 
-            Your job is retrieval-context extraction, not case summary and not root-cause analysis.
+            Your job is retrieval-context extraction, not platform normalization, not case summary, and not root-cause analysis.
+
+            Dependency rules:
+            1. Treat upstream artifacts as authoritative inputs for this step.
+            2. Do not re-check, re-score, or second-guess whether a previous step was correct.
+            3. If normalized platform results are present, use them as the only source for the `platforms` field.
+            4. Do not introduce additional platform names, aliases, board variants, DMI strings, or inferred platform labels beyond the normalized platform artifact.
+            5. Use this step only to flatten existing results into retrieval-friendly fields.
 
             Requirements:
             1. Extract only items that are directly supported by the visible inputs.
             2. Prefer concrete technical entities over broad narrative phrases.
             3. Keep the output sparse. Do not add generic filler.
             4. Do not infer root cause.
-            5. Prefer query-worthy signals such as platform names, subsystem names, file:line references, symbols, and short technical fault phrases.
+            5. Prefer query-worthy signals such as subsystem names, file:line references, symbols, and short technical fault phrases.
             6. Reuse normalized platform results when present.
 
             Output limits:
@@ -210,6 +228,12 @@ phases:
         config:
           instruction: |
             Summarize the Jira case based on the extracted observations.
+
+            Dependency rules:
+            1. Treat extracted observations as the primary source for this step.
+            2. Do not re-extract evidence from raw Jira/log artifacts when the observation artifact already provides it.
+            3. Do not re-evaluate whether previous steps were correct.
+            4. Do not regenerate platform normalization or retrieval context in this step.
 
             Requirements:
             1. Use the extracted observations as the primary basis.
