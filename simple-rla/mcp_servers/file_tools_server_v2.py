@@ -176,7 +176,8 @@ def _scan_crash_events(path: Path, all_lines: list[str], *, max_events: int) -> 
         start_line = cluster[0]["line"]
         end_line = cluster[-1]["line"]
         raw_excerpt = _make_context(all_lines, int(anchor["line"]), 3, 16)
-        trace_excerpt = _extract_trace_excerpt(all_lines, int(call_trace["line"])) if call_trace is not None else []
+        # Note: event line numbers are 1-based; list indices are 0-based.
+        trace_excerpt = _extract_trace_excerpt(all_lines, int(call_trace["line"]) - 1) if call_trace is not None else []
         modules = _extract_modules_from_text(raw_excerpt + trace_excerpt)
         functions = _extract_functions_from_trace(trace_excerpt)
         event = {
