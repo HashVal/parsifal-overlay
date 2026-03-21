@@ -109,6 +109,31 @@ def _build_stream_observer(ctx: StepContext):
     return observer, str(stream_path)
 
 
+def _dump_llm_prompt(spec: StepSpec, ctx: StepContext, prompt: str) -> str | None:
+    """Dump the exact prompt sent to the model for post-mortem/debug.
+
+    This is observability-only: it must not affect runtime semantics.
+
+    Controlled by metadata / env:
+    - spec.metadata.enable_prompt_dump: true|false (preferred)
+    - or env SIMPLE_RLA_DUMP_LLM_PROMPTS=1
+
+    Output path:
+      <run_root>/prompts/<phase>__<step>.prompt.log
+    """
+    enable = bool(spec.metadata.get("enable_prompt_dump")) or bool(os.environ.get("SIMPLE_RLA_DUMP_LLM_PROMPTS"))
+    if not enable:
+        return None
+    run_root = str(ctx.metadata.get("run_root") or "").strip()
+    if not run_root:
+        return None
+    prompt_dir = Path(run_root) / "prompts"
+    prompt_dir.mkdir(parents=True, exist_ok=True)
+    out_path = prompt_dir / f"{ctx.phase_id}__{ctx.step_id}.prompt.log"
+    out_path.write_text(prompt, encoding="utf-8")
+    return str(out_path)
+
+
 def _build_final_result(
     *,
     spec: StepSpec,
@@ -189,6 +214,7 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
             diagnostics=prompt_obs,
             error=StepErrorInfo(code="missing_model", message="llm step requires metadata.model or OPENAI_MODEL"),
         )
+    prompt_dump_path = _dump_llm_prompt(spec, ctx, prompt)
     stream_observer, stream_path = _build_stream_observer(ctx)
     try:
         response = provider.generate(
@@ -212,6 +238,8 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
     diagnostics_extra = dict(prompt_obs)
     if stream_path:
         diagnostics_extra["stream_log_path"] = stream_path
+    if prompt_dump_path:
+        diagnostics_extra["prompt_dump_path"] = prompt_dump_path
     return _build_final_result(
         spec=spec,
         prompt=prompt,
