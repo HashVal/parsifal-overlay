@@ -96,8 +96,9 @@ phases:
             5. Prefer component domains that explain the main crash path and the shared failing-mode scope.
             6. Do not let a component that explains only a side symptom dominate the primary scope.
             7. If a signal appears only in one failing mode but not all failing modes, it is more likely secondary unless evidence strongly shows otherwise.
-            8. scope_keywords should be short, reusable, and retrieval-friendly; avoid raw cmdline tokens or overly specific log fragments as primary keywords.
-            9. Do not claim a root cause.
+            8. Use the platform context GPU topology (devices.gpu.topology) as a prior: if both igpu and dgpu are present, do not collapse the scope to a single GPU domain without direct evidence.
+            9. scope_keywords should be short, reusable, and retrieval-friendly; avoid raw cmdline tokens or overly specific log fragments as primary keywords.
+            10. Do not claim a root cause.
 
             Output limits:
             - primary_components: at most 3 items
@@ -214,13 +215,13 @@ phases:
             - signature_logs.merged
             - platform_inventory
           instruction: |
-            Extract normalized platform context from the visible inputs.
+            Extract normalized platform and GPU-topology context from the visible inputs.
 
-            Your job is platform normalization, not root-cause analysis.
+            Your job is platform normalization and topology prior extraction, not root-cause analysis.
 
             You will receive:
             - case evidence from Jira and log-derived artifacts
-            - a platform inventory with axes, canonical platform names, and aliases
+            - a platform inventory with axes, canonical platform names, aliases, and optional platform config facts
 
             Dependency rules:
             1. This step is the only place in the analysis phase that should normalize platform names.
@@ -231,35 +232,70 @@ phases:
             Requirements:
             1. Match only platforms that are directly supported by the visible inputs.
             2. Normalize matches to canonical names from the platform inventory.
-            3. Keep CPU/host platforms separate from GPU platforms.
-            4. CPU and GPU platforms may both be present at the same time.
-            5. Do not guess unsupported platforms.
-            6. If unsure, leave the list empty.
+            3. Keep host CPU platforms separate from GPU device platforms.
+            4. If the inventory indicates the host platform has an integrated GPU, represent it under devices.gpu.igpu with integrated=true and source=host.
+            5. If a discrete GPU platform is directly supported by the visible inputs, represent it under devices.gpu.dgpu.platforms.
+            6. Explicitly set devices.gpu.topology to reflect whether the case indicates igpu only, dgpu only, or igpu+dgpu.
+            7. Do not guess unsupported platforms or devices.
+            8. Do not claim which GPU is responsible for the crash; this step only normalizes topology and platform facts.
+            9. If unsure, leave lists empty and omit optional objects.
 
             Output limits:
-            - cpu_platforms: at most 3 items
-            - gpu_platforms: at most 3 items
-            - platform_evidence: at most 4 short items
+            - host.cpu_platforms: at most 3 items
+            - devices.gpu.dgpu.platforms: at most 3 items
+            - platform_evidence: at most 5 short items
           output_schema:
             type: object
             required:
-              - cpu_platforms
-              - gpu_platforms
+              - host
+              - devices
               - platform_evidence
             properties:
-              cpu_platforms:
-                type: array
-                maxItems: 3
-                items:
-                  type: string
-              gpu_platforms:
-                type: array
-                maxItems: 3
-                items:
-                  type: string
+              host:
+                type: object
+                required:
+                  - cpu_platforms
+                properties:
+                  cpu_platforms:
+                    type: array
+                    maxItems: 3
+                    items:
+                      type: string
+              devices:
+                type: object
+                required:
+                  - gpu
+                properties:
+                  gpu:
+                    type: object
+                    required:
+                      - topology
+                    properties:
+                      topology:
+                        type: array
+                        maxItems: 2
+                        items:
+                          type: string
+                          enum: [igpu, dgpu]
+                      igpu:
+                        type: object
+                        properties:
+                          integrated:
+                            type: boolean
+                          source:
+                            type: string
+                            enum: [host]
+                      dgpu:
+                        type: object
+                        properties:
+                          platforms:
+                            type: array
+                            maxItems: 3
+                            items:
+                              type: string
               platform_evidence:
                 type: array
-                maxItems: 4
+                maxItems: 5
                 items:
                   type: string
 
@@ -400,9 +436,10 @@ phases:
 
             Requirements:
             1. Extract only facts directly supported by the visible inputs.
-            2. Use the component scope artifact to bias contradictions toward relationships across crash_path, ownership_path, and config_path; treat resource_path-only issues as secondary unless they explain the shared failing-mode pattern.
-            3. Separate activation facts, policy facts, and resource/namespace facts.
-            4. Prioritize explicit contradictions where an active or required path is blocked, redirected, blacklisted, or mismatched by policy.
+            2. Account for structured GPU topology from platform context first. If devices.gpu.topology includes both igpu and dgpu, do not assume a single-GPU failing path without direct evidence.
+            3. Use the component scope artifact to bias contradictions toward relationships across crash_path, ownership_path, and config_path; treat resource_path-only issues as secondary unless they explain the shared failing-mode pattern.
+            4. Separate activation facts, policy facts, and resource/namespace facts.
+            5. Prioritize explicit contradictions where an active or required path is blocked, redirected, blacklisted, or mismatched by policy.
             5. Prefer ownership mismatch, policy-vs-activation mismatch, and working-vs-failing mode isolation over generic firmware_vs_driver wording.
             6. State each contradiction in plain technical language, not abstract labels.
             7. Do not claim a root cause.
@@ -527,7 +564,8 @@ phases:
           instruction: |
             Propose constrained root-cause hypotheses for the current case.
 
-            Use the component scope artifact, extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
+            Use the platform context topology, the component scope artifact, extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
+            Treat platform context GPU topology (devices.gpu.topology) as a required prior. Do not collapse an igpu+dgpu topology into a single-GPU explanation unless visible evidence explicitly identifies the failing GPU path.
             Treat the component scope artifact as the authoritative scope anchor (primary vs secondary domains, and role mapping).
             Treat the cross-layer conflict artifact as the authoritative summary of explicit system-level contradictions and policy mismatches.
             Prefer hypotheses centered on primary components and their roles (crash_path/ownership_path/config_path), using secondary components as supporting or alternative factors unless they better explain all failing modes.
@@ -602,9 +640,10 @@ phases:
 
             Requirements:
             1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
-            2. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
-            3. Identify the weakest links where the current evidence is insufficient.
-            4. Use the component scope artifact to keep the main chain centered on primary components and their fixed roles; do not let a secondary component dominate the main chain unless it better explains all failing modes and the working-mode contrast.
+            2. Include platform context GPU topology (devices.gpu.topology) as a premise when relevant, and keep topology/ownership assumptions explicit.
+            3. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
+            4. Identify the weakest links where the current evidence is insufficient.
+            5. Use the component scope artifact to keep the main chain centered on primary components and their fixed roles; do not let a secondary component dominate the main chain unless it better explains all failing modes and the working-mode contrast.
             5. Prefer hypotheses that explain all reported failing modes together and also fit the working-mode contrast, rather than hypotheses that explain only a subset of failing modes.
             6. If a candidate explanation fits only one failing mode while another explanation better covers all failing modes and the working mode, keep the narrower explanation as alternative rather than treating it as the main chain.
             7. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
