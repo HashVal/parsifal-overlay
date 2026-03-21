@@ -411,6 +411,126 @@ phases:
                 type: string
                 maxLength: 400
 
+      - id: extract_failure_mode_frame
+        type: llm_step
+        config:
+          visible_artifacts:
+            - artifact:extract_component_scope
+            - artifact:extract_platform_context
+            - artifact:extract_observations
+            - artifact:summarize_jira_issue
+          instruction: |
+            Identify the most likely failure mode(s) for this case and define a verification frame.
+
+            Your job is failure-mode framing, not root-cause selection.
+
+            Dependency rules:
+            1. Use only the visible inputs.
+            2. Do not re-derive platform normalization or component scope.
+            3. Do not propose a concrete root cause; that is handled downstream.
+            4. Prefer modes that explain all failing modes and the working-mode contrast.
+
+            Failure mode taxonomy (enum):
+            - policy_vs_activation_mismatch
+            - ownership_binding_mismatch
+            - missing_prerequisite_or_config
+            - invalid_or_corrupted_state
+            - resource_exhaustion_or_allocation_failure
+            - initialization_order_or_race
+            - unsupported_combination_or_compat_gap
+            - unknown
+
+            Requirements:
+            1. Output exactly 1 primary failure mode and up to 2 secondary failure modes.
+            2. For each failure mode, provide:
+               - why_it_fits: evidence-based bullets
+               - why_not_certain: concrete gaps/uncertainties
+               - must_check: discriminating checks (runnable/observable)
+            3. If devices.gpu.topology includes both igpu and dgpu, do not collapse framing to a single GPU path unless evidence explicitly identifies the failing GPU path.
+            4. Keep checks generic and workflow-friendly: avoid deep code changes; prefer A/B configuration and evidence capture.
+
+            Output limits:
+            - why_it_fits: at most 3 bullets per mode
+            - why_not_certain: at most 3 bullets per mode
+            - must_check: at most 4 items per mode
+          output_schema:
+            type: object
+            required:
+              - primary_failure_mode
+              - secondary_failure_modes
+            properties:
+              primary_failure_mode:
+                type: object
+                required:
+                  - mode
+                  - why_it_fits
+                  - why_not_certain
+                  - must_check
+                properties:
+                  mode:
+                    type: string
+                    enum:
+                      - policy_vs_activation_mismatch
+                      - ownership_binding_mismatch
+                      - missing_prerequisite_or_config
+                      - invalid_or_corrupted_state
+                      - resource_exhaustion_or_allocation_failure
+                      - initialization_order_or_race
+                      - unsupported_combination_or_compat_gap
+                      - unknown
+                  why_it_fits:
+                    type: array
+                    maxItems: 3
+                    items:
+                      type: string
+                  why_not_certain:
+                    type: array
+                    maxItems: 3
+                    items:
+                      type: string
+                  must_check:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+              secondary_failure_modes:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  required:
+                    - mode
+                    - why_it_fits
+                    - why_not_certain
+                    - must_check
+                  properties:
+                    mode:
+                      type: string
+                      enum:
+                        - policy_vs_activation_mismatch
+                        - ownership_binding_mismatch
+                        - missing_prerequisite_or_config
+                        - invalid_or_corrupted_state
+                        - resource_exhaustion_or_allocation_failure
+                        - initialization_order_or_race
+                        - unsupported_combination_or_compat_gap
+                        - unknown
+                    why_it_fits:
+                      type: array
+                      maxItems: 3
+                      items:
+                        type: string
+                    why_not_certain:
+                      type: array
+                      maxItems: 3
+                      items:
+                        type: string
+                    must_check:
+                      type: array
+                      maxItems: 4
+                      items:
+                        type: string
+
       - id: extract_cross_layer_conflicts
         type: llm_step
         config:
@@ -421,6 +541,7 @@ phases:
             - artifact:extract_platform_context
             - artifact:summarize_jira_issue
             - artifact:extract_component_scope
+            - artifact:extract_failure_mode_frame
           instruction: |
             Extract explicit cross-layer contradictions and policy mismatches from the visible inputs.
 
@@ -559,14 +680,16 @@ phases:
             - artifact:extract_platform_context
             - artifact:extract_retrieval_context
             - artifact:summarize_jira_issue
+            - artifact:extract_failure_mode_frame
             - artifact:extract_cross_layer_conflicts
             - kb_grounding
           instruction: |
             Propose constrained root-cause hypotheses for the current case.
 
-            Use the platform context topology, the component scope artifact, extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
+            Use the platform context topology, the component scope artifact, the failure-mode frame, extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
             Treat platform context GPU topology (devices.gpu.topology) as a required prior. Do not collapse an igpu+dgpu topology into a single-GPU explanation unless visible evidence explicitly identifies the failing GPU path.
             Treat the component scope artifact as the authoritative scope anchor (primary vs secondary domains, and role mapping).
+            Treat the failure-mode frame as a constraint on narrative shape: describe (a) triggering conditions consistent with the primary failure mode and (b) the triggering code path when available.
             Treat the cross-layer conflict artifact as the authoritative summary of explicit system-level contradictions and policy mismatches.
             Prefer hypotheses centered on primary components and their roles (crash_path/ownership_path/config_path), using secondary components as supporting or alternative factors unless they better explain all failing modes.
             Do not present the answer as final truth.
