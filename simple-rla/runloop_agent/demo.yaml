@@ -411,6 +411,7 @@ phases:
                 type: string
                 maxLength: 400
 
+
       - id: extract_cross_layer_conflicts
         type: llm_step
         config:
@@ -564,9 +565,10 @@ phases:
           instruction: |
             Propose constrained root-cause hypotheses for the current case.
 
-            Use the platform context topology, the component scope artifact, extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
+            Use the platform context topology, the component scope artifact, the failure-mode frame, extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
             Treat platform context GPU topology (devices.gpu.topology) as a required prior. Do not collapse an igpu+dgpu topology into a single-GPU explanation unless visible evidence explicitly identifies the failing GPU path.
             Treat the component scope artifact as the authoritative scope anchor (primary vs secondary domains, and role mapping).
+            Treat the failure-mode frame as a constraint on narrative shape: describe (a) triggering conditions consistent with the primary failure mode and (b) the triggering code path when available.
             Treat the cross-layer conflict artifact as the authoritative summary of explicit system-level contradictions and policy mismatches.
             Prefer hypotheses centered on primary components and their roles (crash_path/ownership_path/config_path), using secondary components as supporting or alternative factors unless they better explain all failing modes.
             Do not present the answer as final truth.
@@ -644,11 +646,19 @@ phases:
             3. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
             4. Identify the weakest links where the current evidence is insufficient.
             5. Use the component scope artifact to keep the main chain centered on primary components and their fixed roles; do not let a secondary component dominate the main chain unless it better explains all failing modes and the working-mode contrast.
-            5. Prefer hypotheses that explain all reported failing modes together and also fit the working-mode contrast, rather than hypotheses that explain only a subset of failing modes.
-            6. If a candidate explanation fits only one failing mode while another explanation better covers all failing modes and the working mode, keep the narrower explanation as alternative rather than treating it as the main chain.
-            7. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
-            8. Keep the chain concise and technical. Do not restate the whole case narrative.
-            9. Do not introduce unsupported new hypotheses.
+            6. Prefer hypotheses that explain all reported failing modes together and also fit the working-mode contrast, rather than hypotheses that explain only a subset of failing modes.
+            7. If a candidate explanation fits only one failing mode while another explanation better covers all failing modes and the working mode, keep the narrower explanation as alternative rather than treating it as the main chain.
+            8. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
+            9. Keep the chain concise and technical. Do not restate the whole case narrative.
+            10. Do not introduce unsupported new hypotheses.
+
+            Important:
+            - Do not mention schema fields such as type, properties, required, items, object, or array.
+            - Do not discuss the JSON format.
+            - Do not output planning text, self-check text, or internal reasoning.
+            - Do not wrap the answer in markdown code fences.
+            - Do not repeat the answer or emit multiple JSON objects.
+            - Return only the final JSON object with the required keys.
 
             Output limits:
             - premises: at most 5 items
@@ -721,3 +731,25 @@ phases:
                       maxItems: 3
                       items:
                         type: string
+
+      - id: summary_analysis_data
+        type: artifact_bundle_step
+        config:
+          visible_artifacts:
+            - artifact:propose_root_cause
+            - artifact:extract_evidence_chains
+            - artifact:extract_platform_context
+            - artifact:extract_component_scope
+          bundle_items:
+            - alias: root_cause
+              source: artifact:propose_root_cause
+              source_step: propose_root_cause
+            - alias: evidence_chain
+              source: artifact:extract_evidence_chains
+              source_step: extract_evidence_chains
+            - alias: platform_context
+              source: artifact:extract_platform_context
+              source_step: extract_platform_context
+            - alias: component_scope
+              source: artifact:extract_component_scope
+              source_step: extract_component_scope
