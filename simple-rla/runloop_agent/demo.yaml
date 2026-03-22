@@ -446,8 +446,15 @@ phases:
                - why_it_fits: evidence-based bullets
                - why_not_certain: concrete gaps/uncertainties
                - must_check: discriminating checks (runnable/observable)
-            3. If devices.gpu.topology includes both igpu and dgpu, do not collapse framing to a single GPU path unless evidence explicitly identifies the failing GPU path.
-            4. Keep checks generic and workflow-friendly: avoid deep code changes; prefer A/B configuration and evidence capture.
+            3. Every bullet/check must include at least one hard evidence anchor token copied from inputs (e.g., `xe.force_probe=*`, `AE_ALREADY_EXISTS`, `drm_gem_private_object_init`, `xe_bo_init_locked`, `devices.gpu.topology`). Avoid generic prose without anchors.
+            4. If devices.gpu.topology includes both igpu and dgpu, do not collapse framing to a single GPU path unless evidence explicitly identifies the failing GPU path.
+            5. Keep checks generic and workflow-friendly: avoid deep code changes; prefer A/B configuration and evidence capture.
+
+            Anti-loop / anti-prose rules:
+            - Do not output paragraphs of analysis.
+            - Do not repeat any sentence.
+            - Do not use filler phrases like "nuanced", "complex interaction", "deeper systemic issue", or "diagnostic landscape".
+            - Return only the final JSON object.
 
             Output limits:
             - why_it_fits: at most 3 bullets per mode
@@ -483,16 +490,19 @@ phases:
                     maxItems: 3
                     items:
                       type: string
+                      maxLength: 200
                   why_not_certain:
                     type: array
                     maxItems: 3
                     items:
                       type: string
+                      maxLength: 200
                   must_check:
                     type: array
                     maxItems: 4
                     items:
                       type: string
+                      maxLength: 200
               secondary_failure_modes:
                 type: array
                 maxItems: 2
@@ -520,16 +530,19 @@ phases:
                       maxItems: 3
                       items:
                         type: string
+                        maxLength: 200
                     why_not_certain:
                       type: array
                       maxItems: 3
                       items:
                         type: string
+                        maxLength: 200
                     must_check:
                       type: array
                       maxItems: 4
                       items:
                         type: string
+                        maxLength: 200
 
       - id: extract_cross_layer_conflicts
         type: llm_step
