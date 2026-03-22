@@ -57,7 +57,15 @@ def _parse_mcp_servers(data: dict[str, Any]) -> tuple[McpServerConfig, ...]:
         if not command:
             continue
         args = tuple(str(x) for x in (raw.get("args") or []))
-        env = {str(k): str(v) for k, v in (raw.get("env") or {}).items()}
+        # Treat empty string values as "unset" so templates can be overridden by shell env.
+        env: dict[str, str] = {}
+        for k, v in (raw.get("env") or {}).items():
+            if v is None:
+                continue
+            text = str(v)
+            if text == "":
+                continue
+            env[str(k)] = text
         cwd = str(raw.get("cwd")).strip() if raw.get("cwd") is not None else None
         out.append(McpServerConfig(name=str(name), command=command, args=args, env=env, cwd=cwd or None))
     return tuple(out)

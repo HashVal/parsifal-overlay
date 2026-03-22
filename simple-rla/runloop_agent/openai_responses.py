@@ -299,7 +299,7 @@ def create_response(
         if exc.code == 404 and url.endswith("/responses"):
             raise OpenAIError(
                 "HTTP 404 on /responses. Your OpenAI-compatible gateway likely does not implement the Responses API. "
-                "Use the ChatCompletions runloop (fc_runloop.py) or point OPENAI_BASE_URL to a backend that supports /v1/responses. "
+                "Use a backend that supports /v1/responses, or fall back to the archived ChatCompletions runloop under runloop_agent/legacy/code/. "
                 f"URL={url} body={raw[:500]}"
             )
         raise OpenAIError(f"HTTP {exc.code} URL={url} body={raw[:2000]}")
