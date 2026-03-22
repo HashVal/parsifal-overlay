@@ -1,11 +1,12 @@
 workflow_id: jira_v2_phase_demo
 start_phase: jira_phase
 terminal_phases:
-  - jira_phase
+  - analysis_phase
 
 phases:
   - id: jira_phase
     type: standard_phase
+    next_phase: analysis_phase
     max_rollbacks: 0
     max_step_attempts: 1
     steps:
@@ -48,3 +49,232 @@ phases:
           outputs:
             artifact_key: artifact_attachments
             nullable: true
+
+  - id: analysis_phase
+    type: standard_phase
+    max_rollbacks: 0
+    max_step_attempts: 1
+    steps:
+      - id: extract_log_signatures
+        type: tool_step
+        config:
+          tool: log_extract_signatures
+          args:
+            path: ${artifacts.artifact_attachments.0}
+            profile: kernel
+            max_total_signatures: 12
+            max_chars: 4000
+          outputs:
+            artifact_key: signature_logs
+
+      - id: extract_observations
+        type: llm_step
+        config:
+          instruction: |
+            Extract a compact observation bundle from the visible inputs.
+
+            Your job is evidence extraction, not diagnosis.
+
+            Requirements:
+            1. Extract only observations that are directly supported by the visible inputs.
+            2. Prefer precise technical signals over broad narrative restatement.
+            3. Keep each item short and literal.
+            4. Do not infer root cause.
+            5. If evidence is incomplete, keep the output sparse instead of filling gaps.
+
+            Output limits:
+            - key_observations: at most 5 items
+            - contradictions: at most 2 items
+            - missing_evidence: at most 3 items
+            - observation_summary: one short paragraph, at most 3 sentences
+          output_schema:
+            type: object
+            required:
+              - key_observations
+              - contradictions
+              - missing_evidence
+              - observation_summary
+            properties:
+              key_observations:
+                type: array
+                maxItems: 5
+                items:
+                  type: string
+              contradictions:
+                type: array
+                maxItems: 2
+                items:
+                  type: string
+              missing_evidence:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              observation_summary:
+                type: string
+                maxLength: 400
+
+      - id: extract_retrieval_context
+        type: llm_step
+        config:
+          instruction: |
+            Extract retrieval-oriented context for KB grounding from the visible inputs.
+
+            Your job is retrieval-context extraction, not case summary and not root-cause analysis.
+
+            Requirements:
+            1. Extract only items that are directly supported by the visible inputs.
+            2. Prefer concrete technical entities over broad narrative phrases.
+            3. Keep the output sparse. Do not add generic filler.
+            4. Do not infer root cause.
+            5. Prefer query-worthy signals such as platform names, subsystem names, file:line references, symbols, and short technical fault phrases.
+
+            Output limits:
+            - platforms: at most 3 items
+            - subsystems: at most 4 items
+            - signals: at most 6 items
+          output_schema:
+            type: object
+            required:
+              - platforms
+              - subsystems
+              - signals
+            properties:
+              platforms:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              subsystems:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+              signals:
+                type: array
+                maxItems: 6
+                items:
+                  type: string
+
+      - id: summarize_jira_issue
+        type: llm_step
+        config:
+          instruction: |
+            Summarize the Jira case based on the extracted observations.
+
+            Requirements:
+            1. Use the extracted observations as the primary basis.
+            2. Produce a concise list of issue keywords.
+            3. Write a short technical summary of the case.
+            4. If the evidence is incomplete or contradictory, reflect that clearly.
+            5. Do not introduce unsupported root-cause claims.
+          output_schema:
+            type: object
+            required:
+              - issue_keywords
+              - llm_sum_description
+            properties:
+              issue_keywords:
+                type: array
+                items:
+                  type: string
+              llm_sum_description:
+                type: string
+
+      - id: kb_ground_case
+        type: tool_step
+        config:
+          tool: kb_ground
+          args:
+            context:
+              case_id: ${workflow.inputs.jira_key}
+              platforms: ${artifacts.artifact:extract_retrieval_context.platforms}
+              subsystems: ${artifacts.artifact:extract_retrieval_context.subsystems}
+            signals:
+              - type: symptom
+                value: ${artifacts.artifact:extract_retrieval_context.signals.0}
+              - type: symptom
+                value: ${artifacts.artifact:extract_retrieval_context.signals.1}
+              - type: symptom
+                value: ${artifacts.artifact:extract_retrieval_context.signals.2}
+              - type: symptom
+                value: ${artifacts.artifact:extract_retrieval_context.signals.3}
+            hints:
+              preferred_kinds:
+                - issue_pattern
+                - rca
+                - code_note
+                - platform_note
+              exclude_ids:
+                - code-note-drm-gem-private-object-init-example
+                - issue-pattern-bmg-xe-gem-private-object-init-example
+                - platform-note-bmg-hybrid-integrated-modes-example
+                - playbook-kernel-panic-triage-example
+                - rca-pkt-20231-example
+                - workaround-bmg-xe-mode-restriction-example
+            limits:
+              max_total_hits: 4
+              max_hits_per_kind: 1
+              include_snippets: true
+          outputs:
+            artifact_key: kb_grounding
+            nullable: true
+
+      - id: propose_root_cause
+        type: llm_step
+        config:
+          instruction: |
+            Propose constrained root-cause hypotheses for the current case.
+
+            Use the extracted observations, the case summary, and the KB grounding as the primary basis.
+            Do not present the answer as final truth.
+            Produce hypotheses only when supported by visible evidence.
+            If the evidence is weak or conflicting, say so explicitly.
+
+            Output limits:
+            1. candidate_root_causes: at most 3 items.
+            2. Each candidate title should be short.
+            3. why_it_matches and why_not_certain should each contain short bullet-like strings.
+            4. recommended_next_checks: at most 4 items.
+            5. Keep evidence_summary concise.
+          output_schema:
+            type: object
+            required:
+              - candidate_root_causes
+              - primary_hypothesis
+              - evidence_summary
+              - recommended_next_checks
+              - confidence_overall
+            properties:
+              candidate_root_causes:
+                type: array
+                items:
+                  type: object
+                  required:
+                    - title
+                    - confidence
+                    - why_it_matches
+                    - why_not_certain
+                  properties:
+                    title:
+                      type: string
+                    confidence:
+                      type: string
+                    why_it_matches:
+                      type: array
+                      items:
+                        type: string
+                    why_not_certain:
+                      type: array
+                      items:
+                        type: string
+              primary_hypothesis:
+                type: string
+              evidence_summary:
+                type: string
+              recommended_next_checks:
+                type: array
+                items:
+                  type: string
+              confidence_overall:
+                type: string
