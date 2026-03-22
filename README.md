@@ -1,3 +1,5 @@
 # Parsifal Overlay
 
-Overlay repo for Parsifal runtime-specific code (tools, glue, and runtime configs).
+This repository is currently centered on `simple-rla/`.
+
+Materials for the older Parsifal overlay / nanobot integration path were moved under `legacy/`.
