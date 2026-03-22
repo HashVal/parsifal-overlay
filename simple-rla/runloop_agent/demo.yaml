@@ -864,27 +864,6 @@ phases:
                 maxItems: 7
                 items:
                   type: string
-
-            Your job is not to invent a new root cause. Treat the proposed primary hypothesis as a candidate explanation to test, not as established truth.
-
-            Requirements:
-            1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
-            2. Include platform context GPU topology (devices.gpu.topology) as a premise when relevant, and keep topology/ownership assumptions explicit.
-            3. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
-            4. Identify the weakest links where the current evidence is insufficient.
-            5. Use the component scope artifact to keep the main chain centered on primary components and their fixed roles; do not let a secondary component dominate the main chain unless it better explains all failing modes and the working-mode contrast.
-            5. Prefer hypotheses that explain all reported failing modes together and also fit the working-mode contrast, rather than hypotheses that explain only a subset of failing modes.
-            6. If a candidate explanation fits only one failing mode while another explanation better covers all failing modes and the working mode, keep the narrower explanation as alternative rather than treating it as the main chain.
-            7. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
-            8. Keep the chain concise and technical. Do not restate the whole case narrative.
-            9. Do not introduce unsupported new hypotheses.
-
-            Output limits:
-            - premises: at most 5 items
-            - supported_links: at most 5 items
-            - weak_links: at most 4 items
-            - discriminating_checks: at most 4 items
-            - alternative_hypotheses_to_keep_alive: at most 2 items
           output_schema:
             type: object
             required:
