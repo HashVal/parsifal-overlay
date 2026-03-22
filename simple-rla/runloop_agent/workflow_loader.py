@@ -5,12 +5,13 @@ from typing import Any
 
 import yaml
 
+from runloop_agent.mcp_client import McpClient
 from runloop_agent.phase import BasePhase
 from runloop_agent.phase_factory import build_phase
 from runloop_agent.workflow_runtime import WorkflowSpec
 
 
-def load_workflow(path: str | Path) -> WorkflowSpec:
+def load_workflow(path: str | Path, *, mcp_client: McpClient | None = None) -> WorkflowSpec:
     with open(path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
@@ -23,7 +24,7 @@ def load_workflow(path: str | Path) -> WorkflowSpec:
     if not isinstance(raw_phases, list) or not raw_phases:
         raise ValueError("workflow yaml must define a non-empty phases list")
 
-    phases: list[BasePhase] = [build_phase(phase_cfg) for phase_cfg in raw_phases]
+    phases: list[BasePhase] = [build_phase(phase_cfg, mcp_client=mcp_client) for phase_cfg in raw_phases]
 
     if not start_phase_id:
         start_phase_id = phases[0].phase_id

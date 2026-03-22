@@ -119,7 +119,7 @@ Option A (module mode; recommended):
 
 ```bash
 cd parsifal/parsifal-overlay/simple-rla
-export OPENAI_API_KEY=...   # required
+export OPENAI_API_KEY=...
 
 python3 -m runloop_agent.responses_runloop \
   --config runloop_agent/example.mcp.toml \
@@ -137,7 +137,7 @@ Also ensure `OPENAI_BASE_URL` includes `/v1` when using an OpenAI-compatible gat
 
 ```bash
 cd parsifal/parsifal-overlay/simple-rla/runloop_agent
-export OPENAI_API_KEY=...   # required
+export OPENAI_API_KEY=...
 
 python3 responses_runloop.py \
   --config example.mcp.toml \
@@ -165,7 +165,7 @@ Notes:
 
 This runloop expects a TOML file (parsed via `tomllib`).
 
-Example (recommended: bearer auth):
+Example (bearer auth style):
 
 ```toml
 [client]
@@ -179,11 +179,11 @@ command = "python3"
 args = ["-m", "mcp_servers.jira_server"]
 
 [mcp_servers.jira.env]
-JIRA_BASE_URL = "https://jira.devtools.intel.com"
-JIRA_API_PREFIX = "/rest/api/latest"
-JIRA_AUTH = "bearer"
-JIRA_TOKEN = "YOUR_BEARER_TOKEN"
-JIRA_VERIFY_SSL = "true"
+JIRA_BASE_URL = ""
+JIRA_API_PREFIX = ""
+JIRA_AUTH = ""
+JIRA_TOKEN = ""
+JIRA_VERIFY_SSL = ""
 
 [mcp_servers.files]
 command = "python3"
@@ -198,25 +198,22 @@ command = "python3"
 args = ["-m", "mcp_servers.kb_server"]
 ```
 
-Alternative (basic auth, if your Jira environment supports it):
+Alternative (basic auth style):
 
 ```toml
 [mcp_servers.jira.env]
-JIRA_BASE_URL = "https://jira.devtools.intel.com"
-JIRA_API_PREFIX = "/rest/api/latest"
-JIRA_AUTH = "basic"
-JIRA_USER = "YOUR_USER"
-JIRA_PASSWORD = "YOUR_PASSWORD"
-JIRA_VERIFY_SSL = "true"
+JIRA_BASE_URL = ""
+JIRA_API_PREFIX = ""
+JIRA_AUTH = ""
+JIRA_USER = ""
+JIRA_PASSWORD = ""
+JIRA_VERIFY_SSL = ""
 ```
 
 Notes:
 
-- In the current target environment, `Bearer JIRA_TOKEN` and `Basic JIRA_USER:JIRA_PASSWORD` are both known-working paths.
-- `Basic JIRA_USER:JIRA_TOKEN` is **not** a generally safe assumption; avoid documenting it as the primary setup.
 - For Jira Cloud, you may want `JIRA_API_PREFIX="/rest/api/3"`.
-- If you don't want secrets in the TOML, remove them from the file and export them in your shell; the runloop inherits `os.environ`.
-- Current `jira_server.py` now prefers `JIRA_PASSWORD` for `basic` auth and keeps `JIRA_TOKEN` only as a compatibility fallback.
+- If you don't want secrets in the TOML, leave them empty and export them in your shell; the runloop inherits `os.environ`.
 - Jira auth failures are diagnosed more explicitly: `401`, HTML login/SSO pages, and non-JSON responses are reported with clearer hints.
 
 ## MCP Contract Expectations

@@ -14,7 +14,6 @@ Quick start:
 cd parsifal/parsifal-overlay/simple-rla
 
 # Configure Jira auth in runloop_agent/example.mcp.toml (or export env vars)
-# Recommended default: bearer auth + /rest/api/latest
 export OPENAI_API_KEY=...
 
 python3 -m runloop_agent.responses_runloop \
@@ -25,19 +24,19 @@ python3 -m runloop_agent.responses_runloop \
 
 Jira auth notes:
 
-- Recommended example config uses:
-  - `JIRA_AUTH="bearer"`
-  - `JIRA_TOKEN="..."`
-  - `JIRA_API_PREFIX="/rest/api/latest"`
-- A known-working alternative in some environments is:
-  - `JIRA_AUTH="basic"`
-  - `JIRA_USER="..."`
-  - `JIRA_PASSWORD="..."`
-- Do **not** assume `basic` should always use `JIRA_USER:JIRA_TOKEN`; that depends on the target Jira environment.
+- Example config fields are intentionally left blank in templates:
+  - `JIRA_AUTH=""`
+  - `JIRA_TOKEN=""`
+  - `JIRA_API_PREFIX=""`
+- Another supported pattern is:
+  - `JIRA_AUTH=""`
+  - `JIRA_USER=""`
+  - `JIRA_PASSWORD=""`
+- Prefer exporting secrets from your shell or CI environment instead of committing them to TOML files.
 
 Recent Jira auth updates:
 
-- Default Jira API prefix is now aligned to `/rest/api/latest`.
+- Default Jira API prefix is now aligned to `/rest/api/latest` in runtime logic when configured that way.
 - `jira_server.py` now prefers `JIRA_PASSWORD` for `basic` auth.
 - `JIRA_TOKEN` is still accepted as a fallback secret in `basic` mode for compatibility.
 - Jira auth failures now produce clearer diagnostics for `401`, HTML login/SSO pages, and non-JSON responses.

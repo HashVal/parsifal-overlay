@@ -14,12 +14,6 @@ class ModelResponse:
 
 
 class ModelProvider:
-    """Minimal no-tool model provider for milestone 1.
-
-    This deliberately supports only a single text-generation path.
-    Tool-enabled execution is out of scope for M1.
-    """
-
     def generate(
         self,
         *,
@@ -28,7 +22,7 @@ class ModelProvider:
         response_schema: dict[str, Any] | None = None,
         timeout_s: int = 90,
     ) -> ModelResponse:
-        del response_schema  # Reserved for future structured output handling.
+        del response_schema
         result = create_response(
             model=model,
             input_items=prompt,
@@ -37,6 +31,22 @@ class ModelProvider:
             timeout_s=timeout_s,
         )
         return ModelResponse(text=result.output_text, raw=result.raw, usage=None)
+
+    def generate_with_tools(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        timeout_s: int = 90,
+    ) -> Any:
+        return create_response(
+            model=model,
+            input_items=messages,
+            tools=tools,
+            tool_choice="auto",
+            timeout_s=timeout_s,
+        )
 
 
 __all__ = ["ModelProvider", "ModelResponse", "OpenAIError"]

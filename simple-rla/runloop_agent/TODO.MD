@@ -9,7 +9,8 @@ This file translates the replacement-track blueprint into a staged implementatio
 - Do **not** modify `workflow_config.py`
 - Do **not** modify `openai_fc.py`
 - Do **not** modify `openai_responses.py`
-- Do **not** design new modules around compatibility with them
+- Do **not** treat `mcp_stdio_client.py` as part of the new runtime main path
+- Do **not** design new modules around compatibility with the previous runloop path
 - Old implementations may be used only as reference material
 
 ---
@@ -28,135 +29,21 @@ A workflow can:
 - return a structured `StepResult`
 - complete a phase through `workflow_runtime.py`
 
----
-
-## Create
-
-### 1. `workflow_loader.py`
-- [ ] define YAML loading entrypoint
-- [ ] validate top-level workflow shape
-- [ ] normalize phase / step config
-- [ ] build `WorkflowSpec`
-- [ ] call `phase_factory.py` and `step_factory.py`
-
-### 2. `phase_factory.py`
-- [ ] define phase type registry
-- [ ] support at least `standard_phase`
-- [ ] build phase objects from normalized config
-- [ ] inject phase-level attempt / rollback policy
-
-### 3. `step_factory.py`
-- [ ] define step type registry
-- [ ] support at least:
-  - [ ] `deterministic_step`
-  - [ ] `llm_step`
-- [ ] build `StepSpec`
-- [ ] instantiate step objects
-
-### 4. `schema_defs.py`
-- [ ] define workflow YAML schema contract
-- [ ] define step config schema contract
-- [ ] define minimal structured LLM output schema contract
-
-### 5. `model_provider.py`
-- [ ] define provider-facing model invocation interface for the new runtime
-- [ ] implement one minimal provider backend
-- [ ] normalize provider result into new runtime-native response objects
-
-### 6. `prompt_builder.py`
-- [ ] define prompt/message assembly interface
-- [ ] build step-visible prompt from:
-  - [ ] workflow / phase / step identity
-  - [ ] step instruction
-  - [ ] selected artifacts
-  - [ ] attempt / transition metadata
-  - [ ] output contract
-- [ ] default to compact context form
-
-### 7. `llm_step.py`
-- [ ] add `LLMStep`
-- [ ] connect `LLMStep.run(...)` to `step_runner.py`
-- [ ] keep `build_prompt(...)` delegating to `prompt_builder.py`
-
-### 8. `step_runner.py`
-- [ ] define step-local model execution loop for no-tool execution
-- [ ] call `prompt_builder.py`
-- [ ] call `model_provider.py`
-- [ ] call `output_parser.py`
-- [ ] call `step_validator.py`
-- [ ] return structured step execution result to `llm_step.py`
-
-### 9. `output_parser.py`
-- [ ] parse structured model output
-- [ ] support raw text / JSON extraction path
-- [ ] return parse diagnostics
-
-### 10. `step_validator.py`
-- [ ] validate structure against step output schema
-- [ ] validate minimal semantic completeness
-- [ ] produce validation decision object
-
----
-
-## Modify
-
-### 11. `step.py`
-- [ ] extend `StepSpec` with declarative fields needed for LLM steps
-  - [ ] `step_type`
-  - [ ] `instruction`
-  - [ ] `output_schema`
-  - [ ] `required_artifacts`
-  - [ ] `artifact_selection`
-  - [ ] `max_model_turns`
-  - [ ] `max_tool_calls`
-  - [ ] `repair_attempts`
-  - [ ] `timeout_seconds`
-  - [ ] `compact_policy`
-- [ ] extend `StepContext` with richer runtime metadata
-- [ ] extend `StepResult` / `diagnostics` shape for parse + validation data
-
-### 12. `phase.py`
-- [ ] add phase-spec fields needed by structured loader/runtime
-  - [ ] `required_output_artifacts`
-  - [ ] `handoff_policy`
-  - [ ] `artifact_visibility`
-  - [ ] `phase_exit_policy`
-
-### 13. `workflow_runtime.py`
-- [ ] introduce `run_id`
-- [ ] keep kernel provider-agnostic
-- [ ] add hook points for future trace / checkpoint integration
-- [ ] preserve current phase-step state-machine role
-
-### 14. `workflow_demo.py`
-- [ ] reduce it to demo / harness role only
-- [ ] wire it to the new `workflow_loader.py`
-- [ ] add a minimal demo path for `llm_step`
-
-### 15. `demo.yaml`
-- [ ] add a minimal new-format workflow example containing:
-  - [ ] one deterministic step
-  - [ ] one no-tool `llm_step`
-
----
-
-## Out of scope for Milestone 1
-- MCP tool execution
-- repair loop
-- checkpoint persistence
-- trace persistence
-- artifact store / compaction engine
+## Status
+- [x] accomplished
 
 ---
 
 # Milestone 2 — Tool-enabled LLM step
 
 ## Goal
-Enable `llm_tool_step` so the model can call MCP tools inside a step-local loop.
+Enable `llm_tool_step` so the model can call MCP tools inside a step-local loop, using a **new MCP stdio client** and a **unified `example.toml` config**.
 
 ## Success condition
 A step can:
-- receive tool schemas
+- load runtime + MCP configuration from `example.toml`
+- launch local MCP servers through the new `mcp_client.py`
+- discover tool schemas
 - request tool calls
 - execute MCP tools
 - receive tool results back into model context
@@ -166,69 +53,114 @@ A step can:
 
 ## Create
 
-### 1. `mcp_client.py`
-- [ ] define MCP client abstraction for the new runtime
-- [ ] support one transport initially (recommended: stdio)
-- [ ] implement:
-  - [ ] server/session init
-  - [ ] tool discovery
-  - [ ] tool invocation
-  - [ ] timeout/error normalization
+### 1. `example.toml`
+- [ ] create a unified config file that replaces:
+  - [ ] `example.runtime.toml`
+  - [ ] `example.mcp.toml`
+- [ ] include:
+  - [ ] `[runtime]` defaults (`model`, `timeout_s`, `protocol_version`)
+  - [ ] `[openai]` settings (`api_key`, `base_url`)
+  - [ ] `[mcp]` settings (`artifacts_root`)
+  - [ ] `[mcp.servers.*]` server launch config
 
-### 2. `tool_registry.py`
+### 2. `mcp_client.py`
+- [ ] define the new runtime's MCP client abstraction
+- [ ] implement a new stdio JSON-RPC client path for MCP
+- [ ] support:
+  - [ ] launching configured MCP servers
+  - [ ] initialize/session setup
+  - [ ] `tools/list`
+  - [ ] `tools/call`
+  - [ ] timeout/error normalization
+  - [ ] `tool_name -> server/client` routing
+- [ ] do **not** depend on `mcp_stdio_client.py` as the primary implementation path
+
+### 3. `tool_registry.py`
 - [ ] define tool metadata model
-- [ ] register tools from MCP discovery
+- [ ] register tools discovered through `mcp_client.py`
 - [ ] support filtering by:
   - [ ] `allowed_tools`
   - [ ] `allowed_tool_families`
+- [ ] infer/provide `family` when MCP server metadata does not include one
 - [ ] expose model-visible tool schema list
 
-### 3. `tool_permission.py`
+### 4. `tool_permission.py`
 - [ ] define permission checks for tool execution
 - [ ] enforce allowlist/family policy
 - [ ] validate tool-call arguments against policy
 - [ ] prepare for side-effect restrictions
 
-### 4. `tool_executor.py`
+### 5. `tool_executor.py`
 - [ ] define single tool-call execution interface
 - [ ] validate permission before execution
 - [ ] invoke tools through `mcp_client.py`
 - [ ] normalize tool result
 - [ ] produce structured `StepToolCall`
 
----
-
-## Modify
-
-### 5. `step_factory.py`
-- [ ] add support for `llm_tool_step`
-
-### 6. `llm_step.py`
-- [ ] add `LLMToolStep`
-- [ ] allow tool-enabled step specs
-
-### 7. `prompt_builder.py`
-- [ ] include model-visible tool descriptions/schemas in step input
-- [ ] clearly express tool-use constraints in prompt contract
-
-### 8. `step_runner.py`
-- [ ] add tool-call loop branch
-- [ ] detect tool-call requests from model output
-- [ ] dispatch to `tool_executor.py`
-- [ ] append tool results into step-local conversation/context
+### 6. `step_runner.py`
+- [ ] introduce step-local execution orchestration for M2+
+- [ ] support no-tool and tool-enabled execution paths
+- [ ] implement tool-call loop branch
+- [ ] call:
+  - [ ] `prompt_builder.py`
+  - [ ] `model_provider.py`
+  - [ ] `tool_executor.py`
+  - [ ] `output_parser.py`
+  - [ ] `step_validator.py`
 - [ ] enforce:
   - [ ] `max_tool_calls`
   - [ ] max model turns with tools
 
-### 9. `schema_defs.py`
+---
+
+## Modify
+
+### 7. `runtime_config.py`
+- [ ] upgrade from runtime-only TOML loading to unified `example.toml`
+- [ ] load:
+  - [ ] runtime defaults
+  - [ ] openai settings
+  - [ ] MCP server settings
+- [ ] keep env vars able to override config values where appropriate
+
+### 8. `step_factory.py`
+- [ ] add support for `llm_tool_step`
+
+### 9. `llm_step.py`
+- [ ] add `LLMToolStep`
+- [ ] move shared execution flow toward `step_runner.py`
+- [ ] preserve no-tool `LLMStep` path while enabling tool loop execution
+
+### 10. `prompt_builder.py`
+- [ ] include model-visible tool descriptions/schemas in step input
+- [ ] clearly express tool-use constraints in prompt contract
+
+### 11. `schema_defs.py`
 - [ ] add tool metadata schema
 - [ ] add tool-call result schema
+- [ ] add unified config schema notes if needed
 
-### 10. `demo.yaml`
+### 12. `demo.yaml`
 - [ ] add a minimal workflow example containing one `llm_tool_step`
+- [ ] prefer a stable local-tool demo first (e.g. files/kb) before more complex external dependencies
 
-### 11. `workflow_demo.py`
+### 13. `workflow_demo.py`
+- [ ] switch to the unified config path (`example.toml`)
+- [ ] initialize/close `mcp_client.py` for tool-enabled runs
 - [ ] add demo path for tool-enabled step execution
+- [ ] keep `--dump` working with tool-call results and conversation context
+
+---
+
+## Reuse guidance for M2
+
+### Reuse directly
+- [ ] `mcp_servers/*`
+
+### Reuse as reference only, not as new main path
+- [ ] `mcp_stdio_client.py`
+- [ ] `example.mcp.toml`
+- [ ] `example.runtime.toml`
 
 ---
 
@@ -237,6 +169,8 @@ A step can:
 - trace persistence
 - checkpoint persistence
 - full artifact store / compaction layer
+- distributed execution
+- multiple MCP transports
 
 ---
 
@@ -385,9 +319,7 @@ Introduce structured artifact management so downstream steps do not receive unco
 ## Deferred after Milestone 4
 - full resume/recovery protocol
 - advanced policy DSL
-- multiple MCP transports
 - multiple provider backends
-- distributed execution
 
 ---
 
@@ -404,4 +336,5 @@ Introduce structured artifact management so downstream steps do not receive unco
 - [ ] no new dependency on `workflow_config.py`
 - [ ] no new dependency on `openai_fc.py`
 - [ ] no new dependency on `openai_responses.py`
+- [ ] `mcp_stdio_client.py` remains outside the new runtime main path
 - [ ] old files remain outside the new runtime main path
