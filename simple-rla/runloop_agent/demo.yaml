@@ -411,155 +411,6 @@ phases:
                 type: string
                 maxLength: 400
 
-      - id: extract_failure_mode_frame
-        type: llm_step
-        config:
-          visible_artifacts:
-            - artifact:extract_platform_context
-            - artifact:summarize_jira_issue
-            - artifact:extract_component_scope
-          instruction: |
-            Identify the most likely failure mode(s) for this case and define a verification frame.
-
-            Your job is failure-mode framing, not root-cause selection.
-
-            Dependency rules:
-            1. Use only the visible inputs.
-            2. Do not re-derive platform normalization or component scope.
-            3. Do not propose a concrete root cause; that is handled downstream.
-            4. Prefer modes that explain all failing modes and the working-mode contrast.
-
-            Failure mode taxonomy (enum):
-            - policy_vs_activation_mismatch
-            - ownership_binding_mismatch
-            - missing_prerequisite_or_config
-            - invalid_or_corrupted_state
-            - resource_exhaustion_or_allocation_failure
-            - initialization_order_or_race
-            - unsupported_combination_or_compat_gap
-            - unknown
-
-            Requirements:
-            1. Output exactly 1 primary failure mode and up to 2 secondary failure modes.
-            2. Primary decision rule: classify primarily from the largest mode-dependent summary signal (Integrated/Hybrid failing vs Discrete working) plus devices.gpu.topology.
-               Do not let a single log detail dominate the primary classification.
-            3. Scope guardrail (critical): in artifact:extract_component_scope, use ONLY `primary_components`, `secondary_components`, and `component_roles`.
-               Do NOT use `component_evidence` or `scope_keywords` as evidence.
-            4. For each failure mode, provide:
-               - why_it_fits: evidence-based bullets
-               - why_not_certain: concrete gaps/uncertainties
-               - must_check: discriminating checks (runnable/observable)
-            5. Every bullet/check must include at least one hard evidence anchor token copied from inputs (e.g., `devices.gpu.topology`, `Integrated`, `Hybrid`, `Discrete`, `xe.force_probe=*`). Avoid generic prose without anchors.
-            6. If devices.gpu.topology includes both igpu and dgpu, do not collapse framing to a single GPU path unless evidence explicitly identifies the failing GPU path.
-            7. must_check must be concrete evidence collection or A/B validation actions (mode comparison, cmdline A/B, device binding/identity capture). Avoid vague checks.
-
-            Anti-loop / anti-prose rules:
-            - Do not output paragraphs of analysis.
-            - Do not repeat any sentence.
-            - Do not use filler phrases like "nuanced", "complex interaction", "deeper systemic issue", or "diagnostic landscape".
-            - Return only the final JSON object.
-
-            Output template (must follow exactly; top-level keys must match):
-            {
-              "primary_failure_mode": {
-                "mode": "policy_vs_activation_mismatch",
-                "why_it_fits": ["..."],
-                "why_not_certain": ["..."],
-                "must_check": ["..."]
-              },
-              "secondary_failure_modes": []
-            }
-
-            Forbidden:
-            - Do NOT output top-level keys: mode, why_it_fits, why_not_certain, must_check.
-
-            Output limits:
-            - why_it_fits: at most 3 bullets per mode
-            - why_not_certain: at most 3 bullets per mode
-            - must_check: at most 4 items per mode
-          output_schema:
-            type: object
-            required:
-              - primary_failure_mode
-              - secondary_failure_modes
-            properties:
-              primary_failure_mode:
-                type: object
-                required:
-                  - mode
-                  - why_it_fits
-                  - why_not_certain
-                  - must_check
-                properties:
-                  mode:
-                    type: string
-                    enum:
-                      - policy_vs_activation_mismatch
-                      - ownership_binding_mismatch
-                      - missing_prerequisite_or_config
-                      - invalid_or_corrupted_state
-                      - resource_exhaustion_or_allocation_failure
-                      - initialization_order_or_race
-                      - unsupported_combination_or_compat_gap
-                      - unknown
-                  why_it_fits:
-                    type: array
-                    maxItems: 3
-                    items:
-                      type: string
-                      maxLength: 200
-                  why_not_certain:
-                    type: array
-                    maxItems: 3
-                    items:
-                      type: string
-                      maxLength: 200
-                  must_check:
-                    type: array
-                    maxItems: 4
-                    items:
-                      type: string
-                      maxLength: 200
-              secondary_failure_modes:
-                type: array
-                maxItems: 2
-                items:
-                  type: object
-                  required:
-                    - mode
-                    - why_it_fits
-                    - why_not_certain
-                    - must_check
-                  properties:
-                    mode:
-                      type: string
-                      enum:
-                        - policy_vs_activation_mismatch
-                        - ownership_binding_mismatch
-                        - missing_prerequisite_or_config
-                        - invalid_or_corrupted_state
-                        - resource_exhaustion_or_allocation_failure
-                        - initialization_order_or_race
-                        - unsupported_combination_or_compat_gap
-                        - unknown
-                    why_it_fits:
-                      type: array
-                      maxItems: 3
-                      items:
-                        type: string
-                        maxLength: 200
-                    why_not_certain:
-                      type: array
-                      maxItems: 3
-                      items:
-                        type: string
-                        maxLength: 200
-                    must_check:
-                      type: array
-                      maxItems: 4
-                      items:
-                        type: string
-                        maxLength: 200
 
       - id: extract_cross_layer_conflicts
         type: llm_step
@@ -571,7 +422,6 @@ phases:
             - artifact:extract_platform_context
             - artifact:summarize_jira_issue
             - artifact:extract_component_scope
-            - artifact:extract_failure_mode_frame
           instruction: |
             Extract explicit cross-layer contradictions and policy mismatches from the visible inputs.
 
@@ -710,7 +560,6 @@ phases:
             - artifact:extract_platform_context
             - artifact:extract_retrieval_context
             - artifact:summarize_jira_issue
-            - artifact:extract_failure_mode_frame
             - artifact:extract_cross_layer_conflicts
             - kb_grounding
           instruction: |
@@ -903,7 +752,6 @@ phases:
             B) artifact:propose_root_cause
             C) artifact:extract_platform_context
             D) artifact:extract_component_scope
-            E) artifact:extract_failure_mode_frame
 
             Requirements:
             1. List exactly these five artifacts as the required set for generating DEBUG_STEPS.
