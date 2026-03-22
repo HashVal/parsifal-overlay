@@ -774,6 +774,98 @@ phases:
 
             Your job is not to invent a new root cause. Treat the proposed primary hypothesis as a candidate explanation to test, not as established truth.
 
+            Requirements:
+            1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
+            2. Include platform context GPU topology (devices.gpu.topology) as a premise when relevant, and keep topology/ownership assumptions explicit.
+            3. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
+            4. Identify the weakest links where the current evidence is insufficient.
+            5. Use the component scope artifact to keep the main chain centered on primary components and their fixed roles; do not let a secondary component dominate the main chain unless it better explains all failing modes and the working-mode contrast.
+            6. Prefer hypotheses that explain all reported failing modes together and also fit the working-mode contrast, rather than hypotheses that explain only a subset of failing modes.
+            7. If a candidate explanation fits only one failing mode while another explanation better covers all failing modes and the working mode, keep the narrower explanation as alternative rather than treating it as the main chain.
+            8. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
+            9. Keep the chain concise and technical. Do not restate the whole case narrative.
+            10. Do not introduce unsupported new hypotheses.
+
+            Important:
+            - Do not mention schema fields such as type, properties, required, items, object, or array.
+            - Do not discuss the JSON format.
+            - Do not output planning text, self-check text, or internal reasoning.
+            - Do not wrap the answer in markdown code fences.
+            - Do not repeat the answer or emit multiple JSON objects.
+            - Return only the final JSON object with the required keys.
+
+            Output limits:
+            - premises: at most 5 items
+            - supported_links: at most 5 items
+            - weak_links: at most 4 items
+            - discriminating_checks: at most 4 items
+            - alternative_hypotheses_to_keep_alive: at most 2 items
+          output_schema:
+            type: object
+            required:
+              - primary_hypothesis_chain
+              - alternative_hypotheses_to_keep_alive
+            properties:
+              primary_hypothesis_chain:
+                type: object
+                required:
+                  - hypothesis
+                  - premises
+                  - supported_links
+                  - weak_links
+                  - discriminating_checks
+                properties:
+                  hypothesis:
+                    type: string
+                  premises:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: string
+                  supported_links:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: object
+                      required:
+                        - claim
+                        - supporting_evidence
+                      properties:
+                        claim:
+                          type: string
+                          maxLength: 200
+                        supporting_evidence:
+                          type: array
+                          maxItems: 4
+                          items:
+                            type: string
+                  weak_links:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+                  discriminating_checks:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+              alternative_hypotheses_to_keep_alive:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  required:
+                    - hypothesis
+                    - why_not_eliminated
+                  properties:
+                    hypothesis:
+                      type: string
+                    why_not_eliminated:
+                      type: array
+                      maxItems: 3
+                      items:
+                        type: string
+
       - id: summary_analysis_data
         type: llm_step
         config:
