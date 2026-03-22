@@ -94,10 +94,15 @@ def _compact_event(event: dict[str, Any], *, max_excerpt_lines: int = 12, max_tr
     return compact
 
 
+def _strip_dmesg_timestamp(line: str) -> str:
+    # Example: "[    9.134589]  xe_bo_init_locked+0x13e/0x3f0 [xe]"
+    return re.sub(r"^\[\s*\d+\.\d+\]\s+", "", line.strip())
+
+
 def _extract_trace_excerpt(all_lines: list[str], call_trace_line: int, *, max_frames: int = 12) -> list[str]:
     excerpt: list[str] = []
     started = False
-    for idx in range(call_trace_line, min(len(all_lines), call_trace_line + 80)):
+    for idx in range(call_trace_line, min(len(all_lines), call_trace_line + 120)):
         line = all_lines[idx]
         stripped = line.strip()
         if not stripped:
@@ -108,6 +113,10 @@ def _extract_trace_excerpt(all_lines: list[str], call_trace_line: int, *, max_fr
             if "Call Trace:" in stripped:
                 started = True
             continue
+
+        # Normalize dmesg timestamp prefix before parsing/merging.
+        stripped = _strip_dmesg_timestamp(stripped)
+
         if stripped in {"<TASK>", "</TASK>"}:
             continue
         if re.search(r"^(RIP:|Code:|RSP:|RAX:|RDX:|RBP:|FS:|CS:|CR2:|PKRU:|Modules linked in:|---\[ end trace)", stripped):
@@ -167,7 +176,8 @@ def _scan_crash_events(path: Path, all_lines: list[str], *, max_events: int) -> 
         start_line = cluster[0]["line"]
         end_line = cluster[-1]["line"]
         raw_excerpt = _make_context(all_lines, int(anchor["line"]), 3, 16)
-        trace_excerpt = _extract_trace_excerpt(all_lines, int(call_trace["line"])) if call_trace is not None else []
+        # Note: event line numbers are 1-based; list indices are 0-based.
+        trace_excerpt = _extract_trace_excerpt(all_lines, int(call_trace["line"]) - 1) if call_trace is not None else []
         modules = _extract_modules_from_text(raw_excerpt + trace_excerpt)
         functions = _extract_functions_from_trace(trace_excerpt)
         event = {
