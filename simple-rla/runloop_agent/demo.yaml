@@ -58,22 +58,33 @@ phases:
       - id: extract_log_signatures
         type: tool_step
         config:
-          tool: log_extract_signatures
+          tool: log_extract_evidence_batch
           args:
-            path: ${artifacts.artifact_attachments.0}
+            paths: ${artifacts.artifact_attachments}
             profile: kernel
-            max_total_signatures: 12
-            max_chars: 4000
+            max_events_per_file: 4
+            max_error_events_per_file: 6
+            max_chars_per_file: 12000
+            max_files: 8
           outputs:
             artifact_key: signature_logs
 
       - id: extract_observations
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_key
+            - jira_properties
+            - signature_logs.merged
           instruction: |
             Extract a compact observation bundle from the visible inputs.
 
             Your job is evidence extraction, not diagnosis.
+
+            Dependency rules:
+            1. Treat upstream artifacts as input data, not as hypotheses to audit or re-derive.
+            2. Do not re-run platform normalization, retrieval selection, or root-cause reasoning in this step.
+            3. Do not question whether a previous step was correct; only extract what is explicitly supported by the visible inputs.
 
             Requirements:
             1. Extract only observations that are directly supported by the visible inputs.
@@ -114,23 +125,99 @@ phases:
                 type: string
                 maxLength: 400
 
+      - id: extract_platform_context
+        type: llm_step
+        config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs.merged
+            - platform_inventory
+          instruction: |
+            Extract normalized platform context from the visible inputs.
+
+            Your job is platform normalization, not root-cause analysis.
+
+            You will receive:
+            - case evidence from Jira and log-derived artifacts
+            - a platform inventory with axes, canonical platform names, and aliases
+
+            Dependency rules:
+            1. This step is the only place in the analysis phase that should normalize platform names.
+            2. Use the visible evidence and the platform inventory only.
+            3. Do not predict what later steps may need.
+            4. Do not add aliases, variants, or board strings unless they normalize to a canonical platform in the inventory.
+
+            Requirements:
+            1. Match only platforms that are directly supported by the visible inputs.
+            2. Normalize matches to canonical names from the platform inventory.
+            3. Keep CPU/host platforms separate from GPU platforms.
+            4. CPU and GPU platforms may both be present at the same time.
+            5. Do not guess unsupported platforms.
+            6. If unsure, leave the list empty.
+
+            Output limits:
+            - cpu_platforms: at most 3 items
+            - gpu_platforms: at most 3 items
+            - platform_evidence: at most 4 short items
+          output_schema:
+            type: object
+            required:
+              - cpu_platforms
+              - gpu_platforms
+              - platform_evidence
+            properties:
+              cpu_platforms:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              gpu_platforms:
+                type: array
+                maxItems: 3
+                items:
+                  type: string
+              platform_evidence:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+
       - id: extract_retrieval_context
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs.merged
+            - artifact:extract_observations
+            - artifact:extract_platform_context
           instruction: |
             Extract retrieval-oriented context for KB grounding from the visible inputs.
 
-            Your job is retrieval-context extraction, not case summary and not root-cause analysis.
+            Your job is retrieval-context extraction, not platform normalization, not case summary, and not root-cause analysis.
+
+            Dependency rules:
+            1. Treat upstream artifacts as authoritative inputs for this step.
+            2. Do not re-check, re-score, or second-guess whether a previous step was correct.
+            3. If normalized platform results are present, use them as the only source for the `platforms` field.
+            4. Do not introduce additional platform names, aliases, board variants, DMI strings, or inferred platform labels beyond the normalized platform artifact.
+            5. Use this step only to flatten existing results into retrieval-friendly fields.
 
             Requirements:
             1. Extract only items that are directly supported by the visible inputs.
             2. Prefer concrete technical entities over broad narrative phrases.
             3. Keep the output sparse. Do not add generic filler.
             4. Do not infer root cause.
-            5. Prefer query-worthy signals such as platform names, subsystem names, file:line references, symbols, and short technical fault phrases.
+            5. The `signals` field is for KB-friendly query keywords and short technical phrases, not raw log tokens.
+            6. Prefer broad but discriminative retrieval terms such as driver names, subsystem names, component names, mode names, and short fault phrases.
+            7. Avoid overly specific strings such as exact cmdline tokens, exact file paths, exact line numbers, or long raw log excerpts unless they are clearly standard KB keywords.
+            8. Reuse normalized platform results when present.
+
+            Signal selection guidance:
+            - Good examples: `xe`, `i915`, `drm`, `gpu`, `kernel BUG`, `hybrid mode`, `integrated mode`, `driver blacklist`
+            - Avoid as primary signals: `drivers/gpu/drm/drm_gem.c:181`, `xe.force_probe=*`, `modprobe.blacklist=i915`
 
             Output limits:
-            - platforms: at most 3 items
+            - platforms: at most 4 items
             - subsystems: at most 4 items
             - signals: at most 6 items
           output_schema:
@@ -142,7 +229,7 @@ phases:
             properties:
               platforms:
                 type: array
-                maxItems: 3
+                maxItems: 4
                 items:
                   type: string
               subsystems:
@@ -159,8 +246,16 @@ phases:
       - id: summarize_jira_issue
         type: llm_step
         config:
+          visible_artifacts:
+            - artifact:extract_observations
           instruction: |
             Summarize the Jira case based on the extracted observations.
+
+            Dependency rules:
+            1. Treat extracted observations as the primary source for this step.
+            2. Do not re-extract evidence from raw Jira/log artifacts when the observation artifact already provides it.
+            3. Do not re-evaluate whether previous steps were correct.
+            4. Do not regenerate platform normalization or retrieval context in this step.
 
             Requirements:
             1. Use the extracted observations as the primary basis.
@@ -168,6 +263,16 @@ phases:
             3. Write a short technical summary of the case.
             4. If the evidence is incomplete or contradictory, reflect that clearly.
             5. Do not introduce unsupported root-cause claims.
+
+            Important:
+            - Do not mention schema fields such as type, properties, required, items, object, or array.
+            - Do not discuss the JSON format.
+            - Do not output planning text, self-check text, or internal reasoning.
+            - Return only the final JSON object with the required keys.
+
+            Output limits:
+            - issue_keywords: at most 5 items
+            - llm_sum_description: at most 3 short sentences
           output_schema:
             type: object
             required:
@@ -176,10 +281,12 @@ phases:
             properties:
               issue_keywords:
                 type: array
+                maxItems: 5
                 items:
                   type: string
               llm_sum_description:
                 type: string
+                maxLength: 400
 
       - id: kb_ground_case
         type: tool_step
@@ -223,6 +330,13 @@ phases:
       - id: propose_root_cause
         type: llm_step
         config:
+          visible_artifacts:
+            - jira_properties
+            - artifact:extract_observations
+            - artifact:extract_platform_context
+            - artifact:extract_retrieval_context
+            - artifact:summarize_jira_issue
+            - kb_grounding
           instruction: |
             Propose constrained root-cause hypotheses for the current case.
 

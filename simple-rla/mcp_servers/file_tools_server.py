@@ -392,6 +392,29 @@ def _find_match(line: str, compiled_rules: list[tuple[str, re.Pattern[str]]]) ->
     return None
 
 
+def _extract_trace_excerpt(all_lines: list[str], start_line: int, end_line: int, *, max_frames: int = 8) -> list[str]:
+    excerpt: list[str] = []
+    in_trace = False
+    for idx in range(max(0, start_line - 1), min(len(all_lines), end_line + 24)):
+        line = all_lines[idx]
+        if not in_trace and re.search(r"\bCall Trace:\b", line, re.IGNORECASE):
+            in_trace = True
+            continue
+        if not in_trace:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            if excerpt:
+                break
+            continue
+        if re.search(r"\bRIP:\b", stripped, re.IGNORECASE):
+            continue
+        excerpt.append(stripped)
+        if len(excerpt) >= max_frames:
+            break
+    return excerpt
+
+
 def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after: int, max_items: int, cluster_gap: int = 20) -> list[dict[str, Any]]:
     compiled_rules = [(kind, re.compile(pat, re.IGNORECASE)) for kind, pat in _FATAL_RULES]
     headline_priority = {
@@ -447,11 +470,15 @@ def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after
         anchor_line = headline["line"] if headline is not None else trace_anchor["line"]
         context = _make_context(all_lines, anchor_line, before, after)
         cluster_kind = headline["kind"] if headline is not None else trace_anchor["kind"]
+        start_line = cluster[0]["line"]
+        end_line = cluster[-1]["line"]
+        trace_excerpt = _extract_trace_excerpt(all_lines, start_line, end_line)
         out.append({
             "id": _sig_id(path, cluster_kind, anchor_line, (headline or trace_anchor)["text"]),
             "cluster_kind": cluster_kind,
-            "start_line": cluster[0]["line"],
-            "end_line": cluster[-1]["line"],
+            "bundle_type": "fatal_with_trace" if trace_anchor is not None else "fatal_only",
+            "start_line": start_line,
+            "end_line": end_line,
             "headline": {
                 "kind": headline["kind"],
                 "line": headline["line"],
@@ -462,6 +489,7 @@ def _scan_fatal_clusters(path: Path, all_lines: list[str], *, before: int, after
                 "line": trace_anchor["line"],
                 "text": trace_anchor["text"],
             } if trace_anchor is not None else None,
+            "trace_excerpt": trace_excerpt,
             "context": context,
         })
     return out
@@ -607,6 +635,78 @@ def _log_extract_signatures(args: dict) -> dict:
 
 def _signature_key(item: dict[str, Any]) -> tuple[str, str]:
     return (str(item.get("kind") or ""), str(item.get("text") or ""))
+
+
+def _log_extract_signatures_batch(args: dict) -> dict:
+    raw_paths = args.get("paths")
+    if not isinstance(raw_paths, list) or not raw_paths:
+        raise ValueError("paths must be a non-empty list")
+    profile = str(args.get("profile", "kernel"))
+    if profile != "kernel":
+        raise RuntimeError(f"unsupported log profile: {profile} (supported: kernel)")
+    before = int(args.get("context_before", _DEFAULT_LOG_CONTEXT_BEFORE))
+    after = int(args.get("context_after", _DEFAULT_LOG_CONTEXT_AFTER))
+    max_per_kind = int(args.get("max_signatures_per_kind", _DEFAULT_LOG_MAX_PER_KIND))
+    max_total = int(args.get("max_total_signatures_per_file", args.get("max_total_signatures", _DEFAULT_LOG_MAX_TOTAL)))
+    max_chars = int(args.get("max_chars_per_file", args.get("max_chars", 24000)))
+    max_files = int(args.get("max_files", len(raw_paths)))
+    if before < 0 or after < 0 or max_per_kind <= 0 or max_total <= 0 or max_chars <= 0 or max_files <= 0:
+        raise ValueError("invalid batch signature extraction limits")
+
+    files: list[dict[str, Any]] = []
+    merged_signals: list[str] = []
+    merged_subsystems: list[str] = []
+    errors: list[dict[str, Any]] = []
+
+    for raw_path in raw_paths[:max_files]:
+        path_text = str(raw_path)
+        try:
+            path = _resolve_path(path_text)
+            all_lines = _read_lines(path)
+            result = _extract_kernel_log_layers(
+                path,
+                all_lines,
+                context_before=before,
+                context_after=after,
+                max_signatures_per_kind=max_per_kind,
+                max_total_signatures=max_total,
+                max_chars=max_chars,
+            )
+            files.append({
+                "path": str(path),
+                "ok": True,
+                "result": result,
+            })
+            for cluster in result.get("fatal", {}).get("items", []) or []:
+                headline = cluster.get("headline") or {}
+                text = str(headline.get("text") or "").strip()
+                if text and text not in merged_signals:
+                    merged_signals.append(text)
+            for item in result.get("errors", {}).get("items", []) or []:
+                text = str(item.get("text") or "").strip()
+                if text and text not in merged_signals:
+                    merged_signals.append(text)
+            for tag in result.get("subsystem_hints", {}).get("tags", []) or []:
+                tag_text = str(tag).strip()
+                if tag_text and tag_text not in merged_subsystems:
+                    merged_subsystems.append(tag_text)
+        except Exception as exc:
+            errors.append({"path": path_text, "error": str(exc)})
+            files.append({
+                "path": path_text,
+                "ok": False,
+                "error": str(exc),
+            })
+
+    return {
+        "profile": profile,
+        "file_count": len(files),
+        "ok_file_count": sum(1 for item in files if item.get("ok")),
+        "files": files,
+        "merged_subsystems": merged_subsystems[:8],
+        "merged_signals": merged_signals[:16],
+        "errors": errors,
+    }
 
 
 def _log_compare(args: dict) -> dict:
@@ -759,6 +859,25 @@ def main() -> None:
             "required": ["path"],
         },
         handler=_log_extract_signatures,
+    ))
+    server.add_tool(Tool(
+        name="log_extract_signatures_batch",
+        description="Extract layered kernel-log signatures for multiple local files and return per-file results plus a compact merged view.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "profile": {"type": "string"},
+                "context_before": {"type": "integer", "minimum": 0},
+                "context_after": {"type": "integer", "minimum": 0},
+                "max_signatures_per_kind": {"type": "integer", "minimum": 1},
+                "max_total_signatures_per_file": {"type": "integer", "minimum": 1},
+                "max_chars_per_file": {"type": "integer", "minimum": 1},
+                "max_files": {"type": "integer", "minimum": 1},
+            },
+            "required": ["paths"],
+        },
+        handler=_log_extract_signatures_batch,
     ))
     server.add_tool(Tool(
         name="log_compare",
