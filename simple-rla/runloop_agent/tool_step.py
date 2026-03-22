@@ -52,8 +52,30 @@ def _resolve_value(value: Any, ctx: StepContext) -> Any:
     if isinstance(value, list):
         return [_resolve_value(item, ctx) for item in value]
     if isinstance(value, dict):
+        repeat_expr = value.get("$repeat")
+        template = value.get("template")
+        if isinstance(repeat_expr, str) and template is not None:
+            resolved_repeat = _resolve_binding(repeat_expr, ctx)
+            if not isinstance(resolved_repeat, list):
+                raise ValueError("$repeat must resolve to a list")
+            out = []
+            for item in resolved_repeat:
+                out.append(_resolve_repeat_template(template, item, ctx))
+            return out
         return {key: _resolve_value(item, ctx) for key, item in value.items()}
     return value
+
+
+def _resolve_repeat_template(template: Any, item: Any, ctx: StepContext) -> Any:
+    if isinstance(template, str):
+        if template == "${item}":
+            return item
+        return template
+    if isinstance(template, list):
+        return [_resolve_repeat_template(x, item, ctx) for x in template]
+    if isinstance(template, dict):
+        return {key: _resolve_repeat_template(val, item, ctx) for key, val in template.items()}
+    return template
 
 
 class ToolStep(BaseStep):

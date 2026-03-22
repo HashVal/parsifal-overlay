@@ -268,6 +268,8 @@ phases:
             - Do not mention schema fields such as type, properties, required, items, object, or array.
             - Do not discuss the JSON format.
             - Do not output planning text, self-check text, or internal reasoning.
+            - Do not wrap the answer in markdown code fences.
+            - Do not repeat the answer or emit multiple JSON objects.
             - Return only the final JSON object with the required keys.
 
             Output limits:
@@ -288,6 +290,106 @@ phases:
                 type: string
                 maxLength: 400
 
+      - id: extract_cross_layer_conflicts
+        type: llm_step
+        config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs.merged
+            - artifact:extract_observations
+            - artifact:extract_platform_context
+            - artifact:summarize_jira_issue
+          instruction: |
+            Extract explicit cross-layer contradictions and policy mismatches from the visible inputs.
+
+            Your job is not root-cause analysis, not KB retrieval, and not case summary.
+
+            Focus on relationships across system layers, such as:
+            - firmware / BIOS / ACPI mode selection
+            - platform or device activation paths
+            - kernel cmdline or module policy
+            - driver ownership / binding policy
+            - resource exposure, namespace exposure, or allocation constraints
+            - working-mode vs failing-mode differences
+
+            Requirements:
+            1. Extract only facts directly supported by the visible inputs.
+            2. Separate activation facts, policy facts, and resource/namespace facts.
+            3. Prioritize explicit contradictions where an active or required path is blocked, redirected, blacklisted, or mismatched by policy.
+            4. Prefer ownership mismatch, policy-vs-activation mismatch, and working-vs-failing mode isolation over generic firmware_vs_driver wording.
+            5. State each contradiction in plain technical language, not abstract labels.
+            6. Do not claim a root cause.
+            7. Do not restate generic observations without a cross-layer contradiction.
+            8. If evidence is incomplete, put the gap into missing_checks instead of over-claiming.
+
+            Contradiction patterns to consider:
+            - an enabled or active device/path vs a blacklisted or disabled driver path
+            - a forced driver policy vs the device ownership path implied by the failing modes
+            - a working/failing mode difference that isolates a conflicting driver or configuration path
+            - a required resource path vs a policy or allocation state that makes that path invalid
+            - a firmware-exposed path that conflicts with the software ownership or initialization policy
+
+            Output limits:
+            - activation_facts: at most 4 items
+            - policy_facts: at most 4 items
+            - resource_or_namespace_facts: at most 4 items
+            - conflicts: at most 3 items
+            - missing_checks: at most 4 items
+          output_schema:
+            type: object
+            required:
+              - activation_facts
+              - policy_facts
+              - resource_or_namespace_facts
+              - conflicts
+              - missing_checks
+            properties:
+              activation_facts:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+              policy_facts:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+              resource_or_namespace_facts:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+              conflicts:
+                type: array
+                maxItems: 3
+                items:
+                  type: object
+                  required:
+                    - conflict_type
+                    - statement
+                    - why_it_matters
+                    - confidence
+                  properties:
+                    conflict_type:
+                      type: string
+                      enum: [ownership_mismatch, policy_vs_activation, resource_vs_policy, firmware_vs_driver]
+                    statement:
+                      type: string
+                      maxLength: 200
+                    why_it_matters:
+                      type: array
+                      maxItems: 4
+                      items:
+                        type: string
+                    confidence:
+                      type: string
+                      enum: [high, medium, low]
+              missing_checks:
+                type: array
+                maxItems: 4
+                items:
+                  type: string
+
       - id: kb_ground_case
         type: tool_step
         config:
@@ -298,14 +400,10 @@ phases:
               platforms: ${artifacts.artifact:extract_retrieval_context.platforms}
               subsystems: ${artifacts.artifact:extract_retrieval_context.subsystems}
             signals:
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.0}
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.1}
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.2}
-              - type: symptom
-                value: ${artifacts.artifact:extract_retrieval_context.signals.3}
+              $repeat: ${artifacts.artifact:extract_retrieval_context.signals}
+              template:
+                type: symptom
+                value: ${item}
             hints:
               preferred_kinds:
                 - issue_pattern
@@ -336,11 +434,14 @@ phases:
             - artifact:extract_platform_context
             - artifact:extract_retrieval_context
             - artifact:summarize_jira_issue
+            - artifact:extract_cross_layer_conflicts
             - kb_grounding
           instruction: |
             Propose constrained root-cause hypotheses for the current case.
 
-            Use the extracted observations, the case summary, and the KB grounding as the primary basis.
+            Use the extracted observations, the case summary, the cross-layer conflict artifact, and the KB grounding as the primary basis.
+            Treat the cross-layer conflict artifact as the authoritative summary of explicit system-level contradictions and policy mismatches.
+            Prefer hypotheses that explain explicit policy-vs-activation or ownership contradictions over hypotheses that merely restate the crash location.
             Do not present the answer as final truth.
             Produce hypotheses only when supported by visible evidence.
             If the evidence is weak or conflicting, say so explicitly.
@@ -392,3 +493,99 @@ phases:
                   type: string
               confidence_overall:
                 type: string
+
+      - id: extract_evidence_chains
+        type: llm_step
+        config:
+          visible_artifacts:
+            - jira_properties
+            - signature_logs.merged
+            - artifact:extract_observations
+            - artifact:extract_platform_context
+            - artifact:extract_cross_layer_conflicts
+            - artifact:summarize_jira_issue
+            - artifact:propose_root_cause
+          instruction: |
+            Derive testable evidence chains from the proposed root-cause artifact.
+
+            Your job is not to invent a new root cause. Treat the proposed primary hypothesis as a candidate explanation to test, not as established truth.
+
+            Requirements:
+            1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
+            2. For each supported link, connect a concrete claim to concrete supporting evidence from the visible inputs.
+            3. Identify the weakest links where the current evidence is insufficient.
+            4. Prefer discriminating checks that separate the primary hypothesis from competing explanations, rather than generic debugging actions.
+            5. Keep the chain concise and technical. Do not restate the whole case narrative.
+            6. Do not introduce unsupported new hypotheses.
+
+            Output limits:
+            - premises: at most 5 items
+            - supported_links: at most 5 items
+            - weak_links: at most 4 items
+            - discriminating_checks: at most 4 items
+            - alternative_hypotheses_to_keep_alive: at most 2 items
+          output_schema:
+            type: object
+            required:
+              - primary_hypothesis_chain
+              - alternative_hypotheses_to_keep_alive
+            properties:
+              primary_hypothesis_chain:
+                type: object
+                required:
+                  - hypothesis
+                  - premises
+                  - supported_links
+                  - weak_links
+                  - discriminating_checks
+                properties:
+                  hypothesis:
+                    type: string
+                  premises:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: string
+                  supported_links:
+                    type: array
+                    maxItems: 5
+                    items:
+                      type: object
+                      required:
+                        - claim
+                        - supporting_evidence
+                      properties:
+                        claim:
+                          type: string
+                          maxLength: 200
+                        supporting_evidence:
+                          type: array
+                          maxItems: 4
+                          items:
+                            type: string
+                  weak_links:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+                  discriminating_checks:
+                    type: array
+                    maxItems: 4
+                    items:
+                      type: string
+              alternative_hypotheses_to_keep_alive:
+                type: array
+                maxItems: 2
+                items:
+                  type: object
+                  required:
+                    - hypothesis
+                    - why_not_eliminated
+                  properties:
+                    hypothesis:
+                      type: string
+                    why_not_eliminated:
+                      type: array
+                      maxItems: 3
+                      items:
+                        type: string

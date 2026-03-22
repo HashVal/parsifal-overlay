@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -58,6 +59,60 @@ def _extract_last_json_object(text: str) -> str | None:
     return candidate
 
 
+def _extract_fenced_json(text: str) -> str | None:
+    patterns = [
+        r"```json\s*(\{.*?\})\s*```",
+        r"```\s*(\{.*?\})\s*```",
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text, flags=re.DOTALL | re.IGNORECASE)
+        for candidate in reversed(matches):
+            candidate = candidate.strip()
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError:
+                continue
+    return None
+
+
+def _extract_first_parseable_json_object(text: str) -> str | None:
+    for start, ch in enumerate(text):
+        if ch != "{":
+            continue
+
+        depth = 0
+        in_string = False
+        escape = False
+        for idx in range(start, len(text)):
+            cur = text[idx]
+            if in_string:
+                if escape:
+                    escape = False
+                elif cur == "\\":
+                    escape = True
+                elif cur == '"':
+                    in_string = False
+                continue
+
+            if cur == '"':
+                in_string = True
+                continue
+            if cur == "{":
+                depth += 1
+                continue
+            if cur == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:idx + 1]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        break
+    return None
+
+
 def parse_model_output(text: str) -> ParseResult:
     raw_text = text or ""
     stripped = raw_text.strip()
@@ -70,23 +125,37 @@ def parse_model_output(text: str) -> ParseResult:
         full_error = exc
 
     extracted = _extract_last_json_object(stripped)
-    if extracted is None:
-        return ParseResult(ok=False, error=f"invalid json: {full_error}", raw_text=raw_text, mode="full")
+    if extracted is not None:
+        try:
+            parsed = json.loads(extracted)
+            return ParseResult(
+                ok=True,
+                parsed=parsed,
+                raw_text=raw_text,
+                mode="fallback_last_json",
+                extracted_text=extracted,
+            )
+        except json.JSONDecodeError:
+            pass
 
-    try:
-        parsed = json.loads(extracted)
+    fenced = _extract_fenced_json(stripped)
+    if fenced is not None:
         return ParseResult(
             ok=True,
-            parsed=parsed,
+            parsed=json.loads(fenced),
             raw_text=raw_text,
-            mode="fallback_last_json",
-            extracted_text=extracted,
+            mode="fallback_fenced_json",
+            extracted_text=fenced,
         )
-    except json.JSONDecodeError as exc:
+
+    first_obj = _extract_first_parseable_json_object(stripped)
+    if first_obj is not None:
         return ParseResult(
-            ok=False,
-            error=f"invalid json: {full_error}; fallback parse failed: {exc}",
+            ok=True,
+            parsed=json.loads(first_obj),
             raw_text=raw_text,
-            mode="fallback_last_json",
-            extracted_text=extracted,
+            mode="fallback_first_json",
+            extracted_text=first_obj,
         )
+
+    return ParseResult(ok=False, error=f"invalid json: {full_error}", raw_text=raw_text, mode="full")
