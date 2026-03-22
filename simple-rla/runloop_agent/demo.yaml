@@ -761,6 +761,112 @@ phases:
 
             Your job is not to invent a new root cause. Treat the proposed primary hypothesis as a candidate explanation to test, not as established truth.
 
+      - id: summary_analysis_data
+        type: llm_step
+        config:
+          visible_artifacts:
+            - artifact:extract_evidence_chains
+            - artifact:propose_root_cause
+            - artifact:extract_platform_context
+            - artifact:extract_component_scope
+            - artifact:extract_failure_mode_frame
+          instruction: |
+            Summarize the analysis phase artifacts needed to generate future DEBUG_STEPS.
+
+            Your job is phase-internal consolidation and DRY overlap annotation.
+            Do not generate any debug steps. Do not propose any new hypotheses.
+
+            You will receive the following artifacts (A-E):
+            A) artifact:extract_evidence_chains
+            B) artifact:propose_root_cause
+            C) artifact:extract_platform_context
+            D) artifact:extract_component_scope
+            E) artifact:extract_failure_mode_frame
+
+            Requirements:
+            1. List exactly these five artifacts as the required set for generating DEBUG_STEPS.
+            2. For each artifact, include its producer step and the minimal subset of fields that should be used downstream.
+            3. Identify overlaps between artifacts (DRY). Prefer naming specific fields that overlap.
+            4. Provide short deduplication guidance that states which artifact should be treated as authoritative for which kind of information.
+            5. Keep the output compact and strictly structured.
+
+            Important:
+            - Do not mention schema fields such as type, properties, required, items, object, or array.
+            - Do not discuss the JSON format.
+            - Do not output planning text, self-check text, or internal reasoning.
+            - Do not wrap the answer in markdown code fences.
+            - Do not repeat the answer or emit multiple JSON objects.
+            - Return only the final JSON object with the required keys.
+
+            Output limits:
+            - artifacts_needed_for_debug_steps: exactly 5 items
+            - overlaps: at most 10 items
+            - dedup_guidance: at most 7 items
+          output_schema:
+            type: object
+            required:
+              - artifacts_needed_for_debug_steps
+              - overlaps
+              - dedup_guidance
+            properties:
+              artifacts_needed_for_debug_steps:
+                type: array
+                minItems: 5
+                maxItems: 5
+                items:
+                  type: object
+                  required:
+                    - artifact_key
+                    - producer_step
+                    - primary_fields_to_use
+                    - why_needed
+                  properties:
+                    artifact_key:
+                      type: string
+                    producer_step:
+                      type: string
+                    primary_fields_to_use:
+                      type: array
+                      maxItems: 6
+                      items:
+                        type: string
+                    why_needed:
+                      type: array
+                      maxItems: 3
+                      items:
+                        type: string
+              overlaps:
+                type: array
+                maxItems: 10
+                items:
+                  type: object
+                  required:
+                    - between
+                    - overlap_fields
+                    - note
+                  properties:
+                    between:
+                      type: array
+                      minItems: 2
+                      maxItems: 2
+                      items:
+                        type: string
+                    overlap_fields:
+                      type: array
+                      maxItems: 6
+                      items:
+                        type: string
+                    note:
+                      type: string
+                      maxLength: 220
+              dedup_guidance:
+                type: array
+                maxItems: 7
+                items:
+                  type: string
+
+            Your job is not to invent a new root cause. Treat the proposed primary hypothesis as a candidate explanation to test, not as established truth.
+
             Requirements:
             1. Decompose the primary hypothesis into the minimum set of premises that must hold for it to be true.
             2. Include platform context GPU topology (devices.gpu.topology) as a premise when relevant, and keep topology/ownership assumptions explicit.
