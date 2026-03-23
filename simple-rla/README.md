@@ -56,7 +56,12 @@ On top of the M2 runtime foundation, additional analysis-oriented workflow work 
 - evidence chain derivation
 - handoff artifact bundling for downstream phases
 
-See `TODO.MD` for the current milestone checklist and implementation status.
+See the repo-level docs for the current design and milestone structure:
+
+- `../docs/roadmap/simple-rla-roadmap.md`
+- `../docs/roadmap/simple-rla-status.md`
+
+`TODO.MD` is still kept locally as a transition/source document during the documentation reorganization.
 
 ---
 
@@ -180,9 +185,28 @@ These files are useful for understanding the intended output style, but they are
 ---
 
 ### `legacy/`
-Archived historical implementation and older design artifacts.
+Historical implementation material has been moved into repo-level archive docs under `../docs/archive/`.
 
 This directory should be treated as reference material only unless you are explicitly investigating the previous approach.
+
+---
+
+## Related Docs
+
+Repo-level docs now carry the higher-level design/spec/roadmap structure for `simple-rla`:
+
+- `../docs/design/why-parsifal-overlay.md`
+- `../docs/design/why-parsifal-overlay_zh.md`
+- `../docs/spec/simple-rla.md`
+- `../docs/spec/analysis-flow.md`
+- `../docs/roadmap/simple-rla-roadmap.md`
+- `../docs/roadmap/simple-rla-status.md`
+- `../docs/archive/simple-rla-legacy-README.old.md`
+- `../docs/archive/simple-rla-legacy-feature-summary-v1.old.md`
+
+Use this `README.md` as the subproject entry document.
+Use `runloop_agent/README.md` for runtime-local details.
+Use `../docs/` for repo-level design, spec, roadmap, and archive material.
 
 ---
 
@@ -190,33 +214,44 @@ This directory should be treated as reference material only unless you are expli
 
 The repository currently has several important documents with different purposes.
 
-### `TODO.MD`
-The current milestone checklist and implementation status.
+### `../docs/roadmap/simple-rla-roadmap.md`
+Milestone definition document for `simple-rla`.
 
 Use this file to understand:
-- which milestone goals are complete
-- which sub-items remain unfinished
-- which capabilities were implemented beyond the original milestone scope
+- what each milestone means
+- what each milestone is trying to achieve
+- what belongs in or out of milestone scope
 
-### `requirement_v2.md`
-The next-stage design target.
+### `../docs/roadmap/simple-rla-status.md`
+Current execution status document for `simple-rla`.
+
+Use this file to understand:
+- which milestones are effectively complete
+- which follow-up items remain
+- what is still planned for later milestones
+
+### `TODO.MD`
+Transition/source document retained during documentation reorganization.
+
+Use this file mainly as:
+- source material for roadmap/status extraction
+- historical continuity while the new repo-level docs structure settles
+
+### `../docs/spec/simple-rla.md`
+The higher-level design target for `simple-rla`.
 
 This file describes the intended direction beyond the current prototype, especially around:
 - DEBUG_STEPS as an intermediate artifact
 - device/code evidence execution
 - evidence-driven RCA correction
 
-It is a design target, not a statement of what is already implemented.
-
-### `ANALYSIS_FLOW.MD`
+### `../docs/spec/analysis-flow.md`
 A review of workflow step boundaries and artifact visibility.
 
 This file is useful when thinking about:
 - which step should see which artifacts
 - how to separate transport artifacts from semantic artifacts
 - how to keep LLM steps narrow and responsibility-specific
-
-Depending on current workflow evolution, parts of it may lag behind the latest `runloop_agent/demo.yaml`.
 
 ### `runloop_agent/README.md`
 Runtime-specific notes for the workflow skeleton.
@@ -227,8 +262,8 @@ Use this when you want:
 - entrypoint details
 - runtime-focused quickstart information
 
-### `legacy/README.md`
-Historical notes for the archived implementation.
+### `../docs/archive/simple-rla-legacy-README.old.md`
+Historical notes for the archived older implementation.
 
 ---
 

@@ -122,21 +122,27 @@ This section lists the documents that are currently important to understanding t
   Runtime-local notes for the workflow skeleton, YAML shape, step types, and entrypoint behavior.
 
 ### Planning / status docs
+- `docs/roadmap/simple-rla-roadmap.md`  
+  Milestone definition document for `simple-rla`, including M1, M2, M2.5, and later milestone intent/scope.
+
+- `docs/roadmap/simple-rla-status.md`  
+  Current implementation status document for `simple-rla`, including DONE, follow-up items, and future TODO milestones.
+
 - `simple-rla/TODO.MD`  
-  Current milestone checklist and implementation status for `simple-rla`, including M2 and M2.5 state.
+  Original source document from which roadmap/status structure was extracted. Kept temporarily as a source/reference during the documentation transition.
 
 ### Design-target and flow docs
-- `simple-rla/requirement_v2.md`  
-  Describes the next-stage design target for `simple-rla`, especially the transition from report generation toward evidence-driven debugging.
+- `docs/spec/simple-rla.md`  
+  Describes the current higher-level design target for `simple-rla`, especially the transition from report generation toward evidence-driven debugging.
 
-- `simple-rla/ANALYSIS_FLOW.MD`  
+- `docs/spec/analysis-flow.md`  
   Reviews step boundaries, artifact visibility, and analysis-layer responsibilities. Useful for understanding how analysis steps should be separated.
 
 ### Historical / legacy docs
-- `simple-rla/legacy/README.md`  
+- `docs/archive/simple-rla-legacy-README.old.md`  
   Notes for the archived older implementation path.
 
-- `simple-rla/legacy/feature_summary_v1.md`  
+- `docs/archive/simple-rla-legacy-feature-summary-v1.old.md`  
   Summary of features and shape of the older implementation.
 
 ---
@@ -150,7 +156,7 @@ Start with:
 
 1. `docs/design/why-parsifal-overlay.md`
 2. `simple-rla/README.md`
-3. `simple-rla/TODO.MD`
+3. `docs/roadmap/simple-rla-status.md`
 
 This path gives you:
 - the motivation
@@ -173,8 +179,8 @@ This path gives you:
 Start with:
 
 1. `docs/design/why-parsifal-overlay.md`
-2. `simple-rla/requirement_v2.md`
-3. `simple-rla/ANALYSIS_FLOW.MD`
+2. `docs/spec/simple-rla.md`
+3. `docs/spec/analysis-flow.md`
 
 This path gives you:
 - the problem framing
@@ -184,11 +190,13 @@ This path gives you:
 ### If you want to review project status
 Start with:
 
-1. `simple-rla/TODO.MD`
-2. `simple-rla/README.md`
+1. `docs/roadmap/simple-rla-roadmap.md`
+2. `docs/roadmap/simple-rla-status.md`
+3. `simple-rla/README.md`
 
 This path gives you:
-- milestone completion state
+- milestone definitions
+- current completion state
 - current project layout and main path
 
 ---
@@ -243,10 +251,10 @@ That is acceptable during the transition, but over time the repo should move tow
 
 Likely next steps include:
 
-- adding `docs/spec/`
-- adding `docs/roadmap/`
-- adding `docs/process/`
-- gradually moving or mirroring higher-level design/status docs into `docs/`
+- further filling `docs/spec/`
+- further filling `docs/roadmap/`
+- adding initial process/governance documents under `docs/process/`
+- deciding when to retire or replace transition-source documents still kept under `simple-rla/`
 
 ---
 
