@@ -1,530 +1,346 @@
-# simple_rla requirement v2
+# Simple RLA Specification
 
-This document defines the next-stage design target for `simple-rla` beyond the current v1 grounded planning prototype.
+## Purpose and Scope
 
-The goal of v2 is to move from:
+This document defines the top-level system specification for `simple-rla`.
 
-> grounded case intake + artifact triage + provisional DEBUG_STEPS drafting
+Its purpose is to describe the intended structure, boundaries, and required behaviors of the system at a level above individual workflow YAML files or runtime implementation details.
 
-to:
+In particular, this document specifies:
 
-> hypothesis-driven debugging + evidence execution + evidence-based correction
+- what problem shape `simple-rla` is designed to handle
+- what the system is expected to produce
+- what the core processing stages are
+- what intermediate states must exist
+- what role `DEBUG_STEPS` plays in the system
+- what terminal outcomes the system must be able to produce
+- what the system is explicitly not trying to be
 
-The central design change is:
-
-> `DEBUG_STEPS` is no longer the effective endpoint.
-> It becomes an intermediate planning artifact inside a longer evidence-closure chain.
-
----
-
-## 1. Design intent
-
-The current v1 chain is roughly:
-- fetch Jira
-- download artifacts
-- extract signatures
-- do lightweight KB grounding
-- draft provisional DEBUG_STEPS
-- stop
-
-The v2 chain must be expanded into a full closed loop that can:
-- form a possible failure reason/hypothesis
-- generate DEBUG_STEPS from that hypothesis
-- continue fetching device/code evidence after plan generation
-- summarize the issue using new evidence
-- terminate with an explicit final state
-
-The target chain for v2 is:
-
-1. `fetch_jira`
-2. `download_artifacts`
-3. `find_error_signature`
-4. `think_with_knowledge_base`
-5. `provide_possible_failure_reason`
-6. `generate_debug_steps`
-7. `device_evidence_fetch`
-8. `code_evidence_fetch`
-9. `summarize_issue_with_evidence`
-10. `correct_rca / BLOCKED / HELP_NEEDED`
+This document is a system-level specification, not a milestone checklist and not an implementation guide.
 
 ---
 
-## 2. Four-stage grouping
+## System Intent
 
-For implementation, the ten steps should be grouped into four larger stages.
+`simple-rla` is intended to be a structured debugging system for issue-driven investigation over case context, local artifacts, prior knowledge, and actively collected evidence.
 
-### Stage A — Case intake
-Includes:
-- Step 1 `fetch_jira`
-- Step 2 `download_artifacts`
+Its defining shift is:
 
-Primary output:
+> from grounded issue analysis plus provisional debug-plan drafting  
+> to hypothesis-driven debugging with evidence execution and explicit outcome classification
+
+The key design consequence of this shift is:
+
+> `DEBUG_STEPS` is not the terminal product of the system.  
+> It is an intermediate planning artifact inside a larger evidence-seeking loop.
+
+The system is therefore expected to support not only analysis generation, but also:
+- explicit hypothesis formation
+- evidence-oriented debug planning
+- device-side and code-side evidence execution
+- evidence-based re-evaluation
+- explicit terminal outcome classification
+
+---
+
+## Core Processing Model
+
+At a high level, `simple-rla` should operate as a bounded reasoning-action-evidence loop.
+
+A simplified view of the intended model is:
+
+```text
+Case Intake
+  -> Signal Extraction
+  -> Knowledge Grounding
+  -> Hypothesis Formation
+  -> Debug Plan Generation
+  -> Evidence Execution
+  -> Evidence-Based Synthesis
+  -> Terminal Outcome
+```
+
+This model is normative at the system level.
+
+Specific workflows may realize this structure through different numbers of phases or steps, but they must preserve the same essential properties:
+- the system must not stop at a provisional plan
+- the system must form an explicit working hypothesis
+- the system must be able to execute evidence-seeking actions
+- the system must be able to revise or conclude based on returned evidence
+
+---
+
+## Processing Stages
+
+### Stage A — Case Intake
+
+The system must begin by obtaining sufficient case framing to decide what materials matter.
+
+This stage is responsible for:
+- retrieving case context
+- identifying available artifacts
+- collecting basic platform or environment hints
+- selecting the first-pass artifacts needed for analysis
+
+Primary outputs:
 - case context
 - artifact manifest
-- local artifact paths
+- local artifact paths or equivalent artifact access references
+
+This stage must not:
+- perform deep RCA
+- substitute broad speculation for missing evidence
+- skip directly to planning
 
 ---
 
-### Stage B — Grounded hypothesis formation
-Includes:
-- Step 3 `find_error_signature`
-- Step 4 `think_with_knowledge_base`
-- Step 5 `provide_possible_failure_reason`
+### Stage B — Analysis and Hypothesis Formation
 
-Primary output:
-- primary failure signature pack
-- KB grounding pack
-- main hypothesis / possible failure reason
+The system must transform raw case material into a grounded working explanation.
 
----
+This stage is responsible for:
+- extracting meaningful signals from artifacts
+- identifying observations that matter
+- grounding those observations with knowledge-base context
+- producing an explicit working hypothesis
 
-### Stage C — Debug planning and evidence execution
-Includes:
-- Step 6 `generate_debug_steps`
-- Step 7 `device_evidence_fetch`
-- Step 8 `code_evidence_fetch`
-
-Primary output:
-- structured DEBUG_STEPS
-- device evidence pack
-- code evidence pack
-
----
-
-### Stage D — Evidence closure
-Includes:
-- Step 9 `summarize_issue_with_evidence`
-- Step 10 `correct_rca / BLOCKED / HELP_NEEDED`
-
-Primary output:
-- evidence-grounded issue summary
-- final state label
-- remaining gaps / blockers if unresolved
-
----
-
-## 3. The 10 required steps
-
----
-
-## Step 1 — `fetch_jira`
-
-### Purpose
-Obtain the minimal valid case framing from Jira.
-
-### Input
-- Jira key or search target
-
-### Output
-- issue summary
-- platform/mode hints
-- attachment list
-- minimal framing for downstream use
-
-### Allowed tools
-- `jira_search`
-- `jira_get`
-- `jira_list_attachments`
-
-### Must not do
-- no deep RCA
-- no broad artifact reading
-- no KB grounding yet
-
-### Exit condition
-The run has enough case context to decide which artifacts should be downloaded.
-
----
-
-## Step 2 — `download_artifacts`
-
-### Purpose
-Download only the artifacts required for first-pass triage.
-
-### Input
-- attachment metadata from Step 1
-
-### Output
-- local artifact paths
-- artifact manifest for the run workspace
-
-### Allowed tools
-- `jira_fetch_attachment`
-
-### Must not do
-- no large in-context previews
-- no KB analysis
-- no final planning
-
-### Exit condition
-At least the key artifacts for first-pass signature extraction are present locally.
-
----
-
-## Step 3 — `find_error_signature`
-
-### Purpose
-Extract the primary crash/failure signature and distinguish core signals from noise.
-
-### Input
-- downloaded artifacts
-
-### Output
-- primary fatal signature
-- trace anchor
-- dominant failure mode
-- supporting errors
-- shared-path vs mode-delta distinction when relevant
-
-### Allowed tools
-- `log_extract_signatures`
-- `log_compare`
-- limited targeted file reads if necessary
-
-### Must not do
-- no final DEBUG_STEPS yet
-- no broad log reading without purpose
-- no promotion of peripheral errors into the main line without causal support
-
-### Exit condition
-The run can state what the main crash surface is and which signal should anchor subsequent reasoning.
-
----
-
-## Step 4 — `think_with_knowledge_base`
-
-### Purpose
-Use the KB as a grounding layer for the extracted signature and case context.
-
-### Input
-- primary crash/signature pack
-- structured context
-
-### Output
-- matched KB objects
-- focus areas
-- recommended next reads
-- grounded vocabulary for subsequent hypothesis formation
-
-### Allowed tools
-- prefer `kb_ground`
-- optional `kb_search` / `kb_get` only when needed
-
-### Must not do
-- no broad KB exploration
-- no final RCA
-- KB must remain support, not authority
-
-### Exit condition
-The run has enough KB grounding to support one main possible failure reason.
-
----
-
-## Step 5 — `provide_possible_failure_reason`
-
-### Purpose
-Explicitly produce a main hypothesis before planning.
-
-### Input
-- crash signature pack
-- KB grounding pack
-- case framing
-
-### Output
-- one main possible failure reason / mechanism hypothesis
+Primary outputs:
+- signal / observation pack
+- knowledge grounding context
+- one primary hypothesis
 - optional weaker alternatives
-- evidence support and evidence gaps for the main hypothesis
+- evidence support and unresolved evidence gaps
 
-### Allowed tools
-- normally none; this is a reasoning/synthesis step
-
-### Must not do
-- do not skip directly to DEBUG_STEPS
-- do not collapse crash point and root-cause origin into the same thing
-- do not replace uncertainty with overconfident prose
-
-### Exit condition
-A single main hypothesis exists that can drive targeted debug steps.
+This stage must not:
+- collapse provisional reasoning into final RCA
+- treat KB matches as proof
+- skip explicit hypothesis formation
 
 ---
 
-## Step 6 — `generate_debug_steps`
+### Stage C — Debug Planning and Evidence Execution
 
-### Purpose
-Convert the main hypothesis into a concrete debugging plan.
+The system must turn the working hypothesis into an evidence-oriented plan and then execute that plan.
 
-### Input
-- main hypothesis
-- known evidence
-- evidence gaps
+This stage is responsible for:
+- generating `DEBUG_STEPS`
+- separating device-side and code-side evidence needs
+- executing relevant evidence collection actions
+- returning evidence in a form that can affect later reasoning
 
-### Output
-- DEBUG_STEPS document/structure with:
-  - problem framing
-  - most likely direction
-  - concrete next steps
-  - unknowns
-  - why this path first
-
-### Allowed tools
-- normally none; this is a planning step
-
-### Required quality rules
-- steps must be evidence-oriented, not topic-oriented
-- strongest existing evidence must anchor the plan
-- crash site alone must not dominate the plan when stronger upstream evidence exists
-- peripheral errors must not enter top steps without causal support
-- the plan must distinguish:
-  - device evidence to fetch
-  - code evidence to fetch
-
-### Exit condition
-A structured DEBUG_STEPS plan exists that can drive evidence collection.
-
----
-
-## Step 7 — `device_evidence_fetch`
-
-### Purpose
-Execute the device-side portion of DEBUG_STEPS.
-
-### Input
-- DEBUG_STEPS device-side actions
-- current hypothesis
-
-### Output
-- device evidence pack
-- config comparison results
-- binding/probe/resource-path observations
-
-### Allowed tools
-This phase requires stronger support than v1 currently has. In v2, it should support one or more of:
-- targeted file/log reads over newly relevant artifacts
-- environment/config inspection
-- structured handling of user-provided device observations
-- future device-side plugins or probes
-
-### Must not do
-- do not re-open the whole case broadly
-- do not drift into unrelated subsystem checks
-
-### Exit condition
-The hypothesis has been updated with at least one meaningful device-side validation or falsification signal.
-
----
-
-## Step 8 — `code_evidence_fetch`
-
-### Purpose
-Execute the code-side portion of DEBUG_STEPS.
-
-### Input
-- DEBUG_STEPS code-side actions
-- crash signature
-- current hypothesis
-
-### Output
-- code evidence pack
-- caller-path evidence
-- invariant/precondition evidence
-- relation between code evidence and device/path evidence
-
-### Allowed tools
-This phase also needs stronger support than v1 currently has. In v2 it should support one or more of:
-- targeted source reads
-- code search
-- function/caller tracing in source form
-- KB code-note support
-- future code-aware tooling
-
-### Must not do
-- do not remain at the crash site only
-- do not ignore the system/resource path already identified by earlier evidence
-
-### Exit condition
-The run can describe which code path reaches the crash point and what precondition is most likely violated.
-
----
-
-## Step 9 — `summarize_issue_with_evidence`
-
-### Purpose
-Perform a second-pass synthesis using the newly collected device and code evidence.
-
-### Input
-- main hypothesis
+Primary outputs:
+- structured debug plan
 - device evidence pack
 - code evidence pack
-- unresolved unknowns
+- failed / blocked evidence actions if relevant
 
-### Output
-- evidence-grounded issue summary
-- updated confidence statement
-- refined explanation of the failure chain
-- explicit remaining gaps
-
-### Allowed tools
-- normally none; this is a synthesis step
-
-### Must not do
-- do not merely repeat the provisional DEBUG_STEPS
-- do not ignore new evidence that weakens the original hypothesis
-
-### Exit condition
-The run has an evidence-based summary strong enough for final state classification.
+This stage must not:
+- treat planning as the endpoint
+- generate purely topic-oriented advice without evidence purpose
+- perform broad unrelated exploration detached from the active hypothesis
 
 ---
 
-## Step 10 — `correct_rca / BLOCKED / HELP_NEEDED`
+### Stage D — Evidence Closure and Outcome Classification
 
-### Purpose
-Produce the correct terminal state of the run.
+The system must perform a second-pass synthesis using newly collected evidence and then produce an explicit terminal outcome.
 
-### Input
-- evidence-grounded issue summary
-- confidence statement
-- unresolved blockers/gaps
+This stage is responsible for:
+- integrating newly collected evidence with the active hypothesis
+- revising or strengthening the explanatory state
+- producing an evidence-grounded issue summary
+- classifying the run into a terminal state
 
-### Output
-One of the following terminal states:
-- `correct_rca`
-- `BLOCKED`
-- `HELP_NEEDED`
+Primary outputs:
+- evidence-grounded summary
+- refined explanatory state
+- explicit terminal outcome
+- remaining blockers or gaps if unresolved
 
-### Definitions
-#### `correct_rca`
+This stage must not:
+- merely restate the provisional debug plan
+- ignore new evidence that weakens the current hypothesis
+- emit a final state without an evidence-based justification
+
+---
+
+## Required Structural Properties
+
+The following structural properties are mandatory for `simple-rla`.
+
+### 1. Explicit Hypothesis Formation
+The system must produce an explicit working hypothesis before generating a debug plan.
+
+A debugging plan without an explicit hypothesis is underspecified and cannot be meaningfully validated by later evidence.
+
+### 2. `DEBUG_STEPS` as an Intermediate Artifact
+`DEBUG_STEPS` must be treated as a planning artifact, not as the terminal output of the system.
+
+Its purpose is to connect the current hypothesis to subsequent evidence collection.
+
+### 3. Post-Plan Evidence Execution
+The system must include evidence execution after plan generation.
+
+At minimum, this must support:
+- device-side evidence collection
+- code-side evidence collection
+
+Without this property, the system remains a planning/reporting tool rather than a debugging loop.
+
+### 4. Evidence-Based Closure
+The system must perform a second-pass synthesis using newly collected evidence before terminal classification.
+
+A final state must not be emitted solely from pre-plan reasoning if later evidence was available but ignored.
+
+### 5. Explicit Terminal Outcomes
+The system must classify the run into an explicit terminal outcome rather than stopping at an untyped narrative summary.
+
+---
+
+## Required Intermediate States
+
+The system must not skip certain intermediate states.
+
+At minimum, the following states must exist before later transitions occur.
+
+### Before hypothesis formation
+The system must have:
+- sufficient case context
+- enough artifact access for first-pass analysis
+- at least one meaningful signal or observation set
+
+### Before debug-plan generation
+The system must have:
+- an explicit working hypothesis
+- some supporting evidence
+- some explicit evidence gaps or open uncertainties
+
+### Before evidence execution
+The system must have:
+- a debug plan that separates device-side and code-side evidence actions where relevant
+- actionable next checks rather than only high-level advice
+
+### Before terminal classification
+The system must have:
+- an evidence-grounded synthesis
+- an explicit confidence or support level
+- an explicit statement of remaining blockers or uncertainty
+
+These states may be realized by different artifacts or workflow structures, but they must exist semantically.
+
+---
+
+## Role of `DEBUG_STEPS`
+
+`DEBUG_STEPS` is a required system object, but its semantics must be tightly constrained.
+
+`DEBUG_STEPS` must be understood as:
+- an execution-oriented plan derived from a current hypothesis
+- a bridge between reasoning and evidence collection
+- a revisable intermediate artifact
+- a structure that should separate different evidence channels when needed
+
+`DEBUG_STEPS` must not be treated as:
+- the endpoint of the system
+- a substitute for evidence execution
+- a purely narrative report section with no action semantics
+
+In the intended model, the system evolves through a chain closer to:
+
+`case -> signals/observations -> grounding -> hypothesis -> DEBUG_STEPS -> evidence execution -> evidence-based synthesis -> terminal outcome`
+
+and not:
+
+`case -> analysis -> DEBUG_STEPS -> stop`
+
+---
+
+## Terminal Outcomes
+
+`simple-rla` must be able to produce explicit terminal outcomes.
+
+At minimum, the system must distinguish between the following result types.
+
+### `correct_rca`
 Use when:
-- the main causal chain is supported by accumulated evidence
-- the result is stronger than a provisional hypothesis
-- the remaining unknowns are no longer critical to the main conclusion
+- the main causal chain is sufficiently supported by accumulated evidence
+- the explanation is stronger than a provisional hypothesis
+- remaining unknowns do not invalidate the main conclusion
 
-#### `BLOCKED`
+### `BLOCKED`
 Use when:
 - the next valuable step is known
-- but the run lacks tools, permissions, environment access, or artifacts to continue
+- but the run cannot continue because of missing tools, permissions, environment access, device reachability, or required artifacts
 
-#### `HELP_NEEDED`
+### `HELP_NEEDED`
 Use when:
-- additional human input, experiment design, or domain interpretation is required
-- or current evidence is not sufficient to confidently pick one causal direction
+- additional human judgment, experiment design, or domain interpretation is required
+- or the current evidence is insufficient to confidently choose one explanatory direction
 
-### Must not do
-- do not label something `correct_rca` when only the crash surface is known
-- do not collapse `BLOCKED` and `HELP_NEEDED`
+These terminal outcomes must remain distinct.
 
-### Exit condition
-A final state label and supporting summary are produced.
-
----
-
-## 4. Mandatory exit conditions / gates between steps
-
-The v2 chain must not skip important intermediate products. These gates are required.
-
-### Gate A — Step 1 -> Step 2
-Must have:
-- enough Jira context to identify which artifacts matter
-
-### Gate B — Step 2 -> Step 3
-Must have:
-- local access to at least the key artifacts for first-pass analysis
-
-### Gate C — Step 3 -> Step 4
-Must have:
-- a primary failure signature or equivalent high-value crash surface
-
-### Gate D — Step 4 -> Step 5
-Must have:
-- at least one meaningful KB grounding result, or an explicit “weak/no KB grounding” note
-
-### Gate E — Step 5 -> Step 6
-Must have:
-- one main possible failure reason / hypothesis
-
-### Gate F — Step 6 -> Step 7 / Step 8
-Must have:
-- DEBUG_STEPS that clearly separate device-side evidence actions from code-side evidence actions
-
-### Gate G — Step 7 / Step 8 -> Step 9
-Must have:
-- at least one real evidence update from either device-side or code-side follow-up
-
-### Gate H — Step 9 -> Step 10
-Must have:
-- evidence-grounded summary
-- confidence statement
-- unresolved gap statement
+In particular:
+- `correct_rca` must not be used for crash-surface-only understanding
+- `BLOCKED` must not be collapsed into `HELP_NEEDED`
+- `HELP_NEEDED` must not be used when the real issue is simple lack of access
 
 ---
 
-## 5. What DEBUG_STEPS should mean in v2
+## Non-Goals
 
-In v2, `DEBUG_STEPS` is explicitly **not** the endpoint.
+`simple-rla` is not intended to be:
 
-It must be treated as:
-- an execution plan derived from a current hypothesis
-- a plan that is meant to drive subsequent evidence collection
-- an intermediate artifact that can later be corrected or superseded
+- an unrestricted autonomous agent
+- a pure report generator
+- a system that assumes every case can be resolved automatically
+- a system that treats KB matches as evidence by themselves
+- a patch generation pipeline by default
+- a system that emits final conclusions without evidence closure
 
-So the mental model should be:
-
-`signature -> KB grounding -> possible failure reason -> DEBUG_STEPS -> evidence execution -> evidence summary -> terminal state`
-
-not:
-
-`signature -> KB grounding -> DEBUG_STEPS -> stop`
-
----
-
-## 6. What v2 must emphasize that v1 still misses
-
-### 6.1 Explicit hypothesis phase
-v2 must include Step 5 as a first-class phase.
-This is the most important structural correction relative to v1.
-
-### 6.2 Post-plan evidence execution
-v2 must include:
-- Step 7 `device_evidence_fetch`
-- Step 8 `code_evidence_fetch`
-
-Without these, DEBUG_STEPS will remain an endpoint artifact rather than a debugging tool.
-
-### 6.3 Evidence-based closure
-v2 must include:
-- Step 9 `summarize_issue_with_evidence`
-- Step 10 `correct_rca / BLOCKED / HELP_NEEDED`
-
-Without this, the system cannot distinguish between:
-- provisional understanding
-- real evidence-supported correction
-- blocked investigation
-- need for human help
+Its purpose is narrower and more practical:
+- reduce repeated debugging effort
+- improve evidence quality
+- make hypotheses explicit
+- drive useful next checks
+- classify outcomes clearly
+- stop safely when automation should no longer continue
 
 ---
 
-## 7. Implementation guidance for v2
+## Notes on Realization
 
-A practical implementation order is:
+This specification does not require one exact workflow shape.
 
-### Batch 1
-- introduce Step 5 `provide_possible_failure_reason`
-- introduce Step 10 terminal-state classification
+Different concrete workflows may realize the same system properties through:
+- different numbers of phases
+- different numbers of steps
+- different tool choices
+- different artifact layouts
 
-### Batch 2
-- introduce Step 7 `device_evidence_fetch`
-- introduce Step 8 `code_evidence_fetch`
-
-### Batch 3
-- introduce Step 9 evidence-integrated second-pass summary
-- refine budgets, state machine, and output policies around the full ten-step flow
-
-Reason:
-- Batch 1 fixes the most important structural defect in current output quality
-- Batch 2 makes DEBUG_STEPS operational
-- Batch 3 closes the evidence loop
+However, such variations are acceptable only if the core structure remains intact:
+- explicit hypothesis formation
+- intermediate debug-plan semantics
+- post-plan evidence execution
+- evidence-based closure
+- explicit terminal outcome classification
 
 ---
 
-## 8. Naming note
+## Appendix: Example Realization Pattern
 
-This file is named `requirement_v2.md` because the next-stage need is larger than a prompt tweak or workflow adjustment. It is a design-level requirement document for the next generation of `simple-rla`.
+One valid realization pattern is a ten-step flow of the following form:
+
+1. fetch case context
+2. acquire relevant artifacts
+3. extract primary failure signals
+4. ground interpretation with the knowledge base
+5. form an explicit possible failure reason / hypothesis
+6. generate `DEBUG_STEPS`
+7. execute device-side evidence collection
+8. execute code-side evidence collection
+9. synthesize the issue again using new evidence
+10. classify the run into `correct_rca`, `BLOCKED`, or `HELP_NEEDED`
+
+This appendix is illustrative, not the definition itself.
+
+The normative definition is the system structure described in the sections above.
