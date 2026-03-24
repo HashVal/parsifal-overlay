@@ -452,6 +452,7 @@ The runtime can:
 - realize `CODE_CHECK` through MCP-backed code-side tool capabilities
 - realize `DEVICE_CHECK` through MCP-backed device/runtime-side tool capabilities
 - route checks through appropriate execution capability paths
+- assemble execution-ready checks into invocation-ready MCP requests
 - execute checks through a structured execution contract
 - normalize MCP tool results into structured execution results
 - return structured evidence outputs from executed checks
@@ -489,7 +490,14 @@ The runtime can:
 - [ ] define tool-result normalization rules for execution-phase use
 - [ ] define minimum execution boundary between check object and MCP tool call
 
-### 3. Evidence and result packaging layer
+### 3. Execution request assembly layer
+- [ ] define how execution-ready `CODE_CHECK` is transformed into invocation-ready MCP request data
+- [ ] define how execution-ready `DEVICE_CHECK` is transformed into invocation-ready MCP request data
+- [ ] define target shaping and parameter normalization before MCP tool call
+- [ ] define how planning-only or non-executable fields are excluded from invocation payloads
+- [ ] define how supporting capability needs are preserved during request assembly without changing primary check type
+
+### 4. Evidence and result packaging layer
 - [ ] define how executed checks emit structured evidence outputs
 - [ ] define how execution results are packaged for downstream evidence closure
 - [ ] preserve code-side and device-side evidence distinction
@@ -499,18 +507,18 @@ The runtime can:
 
 ## Modify
 
-### 4. Runtime orchestration integration
+### 5. Runtime orchestration integration
 - [ ] extend runtime/phase execution so `Check Execution` can exist as a first-class phase capability
 - [ ] add execution-path support for structured check handling
 - [ ] integrate MCP-backed check realization into the runtime execution path
 - [ ] ensure execution results can flow back into workflow/phase artifacts cleanly
 
-### 5. Step / phase / result interfaces
+### 6. Step / phase / result interfaces
 - [ ] ensure step/phase/result interfaces can carry structured check-execution state
 - [ ] ensure runtime result objects can carry evidence outputs and execution outcomes
 - [ ] ensure downstream phases can consume execution artifacts without reopening raw tool output
 
-### 6. Minimal observability for execution substrate
+### 7. Minimal observability for execution substrate
 - [ ] preserve enough diagnostics to inspect check execution behavior
 - [ ] preserve enough metadata to understand which MCP capability path was used
 - [ ] preserve enough runtime output to debug execution-result normalization failures if they occur
@@ -529,6 +537,173 @@ The runtime can:
 
 ## Status
 - [ ] planned
+
+---
+
+# Milestone 3.1 — Debug-plan interpretation and check assembly
+
+## Goal
+Provide the first concrete realization layer on top of the M3 `Check Execution` substrate by interpreting `DEBUG_STEPS` and assembling execution-ready check data.
+
+This milestone bridges the gap between planning artifacts and execution objects. It does not yet execute checks, but it must transform debug-plan output into structured `CODE_CHECK` and `DEVICE_CHECK` inputs that later execution milestones can consume.
+
+## Success condition
+A workflow can:
+
+- consume `DEBUG_STEPS` / `DEBUG_PLAN` as structured planning input
+- interpret the planning artifact into execution-ready check objects
+- distinguish and assemble:
+  - `CODE_CHECK`
+  - `DEVICE_CHECK`
+- preserve hypothesis linkage and evidence-gap intent in assembled checks
+- preserve execution-relevant fields such as:
+  - target
+  - purpose
+  - evidence sought
+  - expected interpretation
+  - supporting capability needs where relevant
+- emit a bounded structured check-assembly artifact for downstream execution milestones
+
+---
+
+## Create
+
+### 1. Check-assembly data model
+- [ ] define the minimum assembled-check representation for execution-ready `CODE_CHECK`
+- [ ] define the minimum assembled-check representation for execution-ready `DEVICE_CHECK`
+- [ ] define shared execution-facing fields required after debug-plan interpretation
+- [ ] define the minimum linkage fields back to:
+  - [ ] source `DEBUG_STEPS`
+  - [ ] hypothesis context
+  - [ ] evidence-gap intent
+
+### 2. Debug-plan interpretation layer
+- [ ] define how `DEBUG_STEPS` / `DEBUG_PLAN` is read as structured planning input
+- [ ] define interpretation rules from planning semantics to execution-facing fields
+- [ ] define how non-executable planning prose is excluded from assembled check data
+- [ ] define how supporting capability needs are preserved without becoming peer check types
+
+### 3. Check classification and assembly output
+- [ ] define classification rules for separating assembled checks into:
+  - [ ] `CODE_CHECK`
+  - [ ] `DEVICE_CHECK`
+- [ ] define the structured output artifact for assembled checks
+- [ ] define how assembled checks are packaged for downstream execution milestones
+- [ ] ensure the assembly output remains bounded and downstream-consumable
+
+---
+
+## Modify
+
+### 4. Runtime / phase integration for assembly
+- [ ] add runtime support for a phase/step that consumes `DEBUG_STEPS` and emits assembled checks
+- [ ] ensure assembled-check artifacts can flow into later execution phases cleanly
+- [ ] ensure assembly output can be preserved as structured workflow artifacts
+
+### 5. Step / result interface support
+- [ ] ensure step/result interfaces can carry assembled-check outputs cleanly
+- [ ] ensure downstream phases can consume assembled checks without re-reading the original planning artifact
+- [ ] ensure assembled-check output remains separate from execution-result output
+
+### 6. Minimal diagnostics for interpretation/assembly
+- [ ] preserve enough diagnostics to inspect how `DEBUG_STEPS` was interpreted
+- [ ] preserve enough diagnostics to inspect why a check was classified as `CODE_CHECK` or `DEVICE_CHECK`
+- [ ] preserve enough diagnostics to inspect assembly failures or dropped planning fields when needed
+
+---
+
+## Out of scope for Milestone 3.1
+- executing `CODE_CHECK`
+- executing `DEVICE_CHECK`
+- MCP tool invocation
+- real execution evidence return
+- evidence evaluation or outcome classification
+- revising the debug plan itself
+
+## Status
+- [ ] planned
+
+---
+
+# Milestone 3.2 — Device-check execution realization
+
+## Goal
+Provide the first concrete execution realization on top of the M3 `Check Execution` substrate by executing assembled `DEVICE_CHECK` items through MCP-backed device/runtime-side capabilities.
+
+This milestone turns execution-ready `DEVICE_CHECK` objects into real device-side evidence-producing actions.
+
+## Success condition
+A workflow can:
+
+- consume execution-ready `DEVICE_CHECK` inputs produced by earlier assembly steps
+- resolve device/runtime-side execution targets for those checks
+- invoke appropriate MCP-backed device/runtime-side capabilities
+- return structured execution results for executed `DEVICE_CHECK` items
+- return structured device-side evidence outputs
+- classify each executed `DEVICE_CHECK` into check-level outcomes such as:
+  - `COMPLETED`
+  - `INCONCLUSIVE`
+  - `BLOCKED`
+  - `FAILED`
+  - `DEFERRED`
+
+---
+
+## Create
+
+### 1. Device-check execution target layer
+- [ ] define how assembled `DEVICE_CHECK` targets are resolved into execution-ready device/runtime-side targets
+- [ ] define the minimum target fields required for device-side execution
+- [ ] define how missing, ambiguous, or non-resolvable targets are represented before invocation
+- [ ] define how device/runtime context needed for execution is preserved during target resolution
+
+### 2. MCP-backed device-check invocation layer
+- [ ] define the MCP-backed execution path for `DEVICE_CHECK`
+- [ ] define how device-side capability families are selected for a given `DEVICE_CHECK`
+- [ ] define invocation rules from execution-ready `DEVICE_CHECK` data to device-side MCP tool requests
+- [ ] define how supporting capability needs are carried into invocation without changing the primary `DEVICE_CHECK` type
+
+### 3. Device execution-result normalization layer
+- [ ] define how raw MCP device/runtime outputs are normalized into structured `DEVICE_CHECK` execution results
+- [ ] define the minimum execution-result fields preserved after device-side execution
+- [ ] define how execution diagnostics and invocation metadata are retained for later interpretation
+
+### 4. Device evidence extraction layer
+- [ ] define how structured device-side evidence is extracted from normalized execution results
+- [ ] define the minimum evidence fields needed by later evidence-integration or closure milestones
+- [ ] preserve device-side evidence distinction from future code-side evidence outputs
+
+---
+
+## Modify
+
+### 5. Runtime / phase integration for `DEVICE_CHECK`
+- [ ] add runtime support for executing assembled `DEVICE_CHECK` items as part of `Check Execution`
+- [ ] ensure device-check execution outputs can flow into workflow/phase artifacts cleanly
+- [ ] ensure device-check execution remains separable from future `CODE_CHECK` execution realization
+
+### 6. Outcome application for real device-check runs
+- [ ] apply check-level outcome semantics to real `DEVICE_CHECK` execution results
+- [ ] define how `COMPLETED`, `INCONCLUSIVE`, `BLOCKED`, `FAILED`, and `DEFERRED` are determined for device-side execution
+- [ ] ensure outcome determination remains tied to execution reality rather than later evidence evaluation
+
+### 7. Minimal diagnostics for device-check realization
+- [ ] preserve enough diagnostics to inspect target resolution for `DEVICE_CHECK`
+- [ ] preserve enough diagnostics to inspect MCP capability selection for device-side execution
+- [ ] preserve enough diagnostics to inspect normalization failures or evidence-extraction failures when needed
+
+---
+
+## Out of scope for Milestone 3.2
+- `CODE_CHECK` execution realization
+- combined code/device evidence integration
+- debug-plan generation or revision
+- evidence evaluation or terminal outcome classification
+- full `Check Execution` phase completion across all check families
+
+## Status
+- [ ] planned
+
 ---
 
 # Milestone 4 — Artifact selection and compaction
