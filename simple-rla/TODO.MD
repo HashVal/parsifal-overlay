@@ -15,39 +15,137 @@ This file translates the replacement-track blueprint into a staged implementatio
 
 ---
 
-# Milestone 1 — Pure LLM step
+# Milestone 1 — Minimal runtime backbone
 
 ## Goal
-Enable the new skeleton runtime to execute a real `llm_step` without tools.
+Establish the minimum phase/step execution backbone for the new runtime.
+
+This milestone proves that the new runtime can load a structured workflow, execute steps through a unified phase/step model, validate structured outputs, and complete phase-level orchestration without tool use.
 
 ## Success condition
-A workflow can:
-- load from a new structured YAML
-- run a deterministic step
-- run a no-tool `llm_step`
+The new runtime can:
+
+- load a workflow from the new structured YAML format
+- construct phases and steps from that workflow
+- execute deterministic steps
+- execute a no-tool `llm_step`
 - parse and validate model output
 - return a structured `StepResult`
 - complete a phase through `workflow_runtime.py`
+
+## Implementation focus
+- workflow loading from the new structured YAML
+- phase/step construction backbone
+- deterministic and no-tool `llm_step` execution paths
+- structured parse / validate / result flow
+- phase-level orchestration through the new runtime
+
+## Out of scope for Milestone 1
+- Jira-specific phase logic
+- MCP tool execution
+- KB grounding
+- issue analysis
+- debug planning
+- check execution
+- evidence closure
+- repair / trace / checkpoint features
 
 ## Status
 - [x] accomplished
 
 ---
 
-# Milestone 2 — Tool-enabled LLM step
+# Milestone 1.5 — Jira intake phase example
 
 ## Goal
-Enable `llm_tool_step` so the model can call MCP tools inside a step-local loop, using a **new MCP stdio client** and a **unified `example.toml` config**.
+Provide a concrete phase implementation example on top of the M1 runtime backbone by realizing a Jira intake phase.
+
+This milestone demonstrates that the runtime backbone can support a real workflow phase that fetches ticket context and prepares initial case artifacts for downstream analysis.
 
 ## Success condition
-A step can:
-- load runtime + MCP configuration from `example.toml`
-- launch local MCP servers through the new `mcp_client.py`
-- discover tool schemas
-- request tool calls
-- execute MCP tools
-- receive tool results back into model context
-- terminate with valid structured output
+A workflow can execute a Jira intake phase that:
+
+- resolves the target Jira case
+- fetches core Jira properties
+- selects relevant attachments
+- downloads selected attachments
+- emits structured intake artifacts for downstream phases
+
+## Implementation focus
+- Jira ticket lookup as workflow entry
+- Jira property fetch / normalization
+- attachment selection
+- attachment download
+- structured intake artifact outputs
+- concrete intake-phase realization in `runloop_agent/demo.yaml`
+
+## Example realization
+Reference the Jira intake phase in `runloop_agent/demo.yaml`, including steps such as:
+
+- `find_jira`
+- `grep_jira_properties`
+- `select_jira_attachments`
+- `download_jira_attachments`
+
+## Out of scope for Milestone 1.5
+- full issue analysis
+- KB grounding
+- root-cause proposal
+- debug-plan generation
+- check execution
+- evidence closure
+
+## Status
+- [x] accomplished
+
+---
+
+# Milestone 2 — Tool-enabled, observable, and structured execution runtime
+
+## Goal
+Extend the M1 runtime backbone into a tool-enabled, observable, and structured execution runtime.
+
+This milestone establishes the runtime capabilities needed for YAML-based execution to support tool use, structured intermediate artifacts, real-time observability, and dumpable execution state.
+
+M2 is about strengthening the runtime execution model itself. It is not yet the milestone for full debug-loop semantics such as debug-plan generation, check execution, or evidence closure.
+
+## Success condition
+The runtime can:
+
+- load unified runtime and MCP configuration
+- initialize and manage MCP-based tool access through the new client path
+- discover and expose model-visible tool schemas
+- execute tool calls inside a step-local loop
+- enforce tool-use permission boundaries
+- feed tool results back into model context
+- emit structured step outputs and structured downstream artifacts
+- support YAML-defined execution with stronger artifact/output discipline
+- support execution dumps for workflow / step inspection
+- support real-time output / stream visibility for LLM steps
+- terminate with valid structured step output
+
+## Implementation focus
+- unified runtime + MCP configuration contract
+- new MCP client abstraction and stdio execution path
+- tool discovery, registration, permission, and execution
+- step-local tool-call loop
+- structured tool-call / tool-result flow
+- structured artifact/output contract for downstream execution
+- dump support for execution-state inspection
+- real-time output / streaming observability
+- strengthening YAML-based workflow execution for analysis-oriented flows
+
+## Out of scope for Milestone 2
+- Jira-specific workflow semantics as a milestone goal
+- full debug-plan generation
+- formal `CODE_CHECK` / `DEVICE_CHECK` execution semantics
+- evidence-closure / terminal-outcome classification
+- bounded repair / trace / checkpoint features
+- distributed execution
+- multiple MCP transports
+
+## Status
+- [x] accomplished
 
 ---
 
@@ -174,25 +272,149 @@ A step can:
 
 ---
 
+# Milestone 2.1 — Analysis signal extraction and normalization
+
+## Goal
+Provide the first analysis-layer realization on top of the M2 runtime by converting raw case artifacts into structured semantic analysis inputs.
+
+This milestone establishes the lower analysis substrate: signal extraction, scope anchoring, platform normalization, and retrieval-oriented context shaping.
+
+## Success condition
+A workflow can execute an analysis segment that:
+
+- extracts structured log/signature evidence from raw attachments
+- derives component scope for the case
+- extracts compact observations from visible artifacts
+- normalizes platform and topology context
+- produces retrieval-oriented context for later grounding
+
+## Implementation focus
+- log/signature evidence extraction
+- component scope anchoring
+- observation extraction
+- platform / topology normalization
+- retrieval-context shaping
+- structured analysis artifacts for downstream reasoning
+
+## Example realization
+Reference the early analysis steps in `runloop_agent/demo.yaml`, including:
+
+- `extract_log_signatures`
+- `extract_component_scope`
+- `extract_observations`
+- `extract_platform_context`
+- `extract_retrieval_context`
+
+## Out of scope for Milestone 2.1
+- KB grounding
+- issue-level summary synthesis
+- root-cause proposal
+- evidence-chain derivation
+- debug-plan generation
+- check execution
+- evidence closure
+
+## Status
+- [x] accomplished
+
+---
+
+# Milestone 2.2 — Analysis grounding and hypothesis formation
+
+## Goal
+Extend the analysis layer from normalized semantic artifacts into grounded explanatory reasoning.
+
+This milestone establishes the upper analysis substrate: concise case summarization, cross-layer conflict extraction, KB grounding, constrained root-cause proposal, and evidence-chain formation.
+
+## Success condition
+A workflow can execute an analysis segment that:
+
+- summarizes the issue from structured analysis artifacts
+- extracts explicit cross-layer contradictions and policy mismatches
+- grounds the case against KB context
+- proposes constrained root-cause hypotheses
+- derives testable evidence chains from the primary hypothesis
+
+## Implementation focus
+- issue summary generation from prior analysis artifacts
+- cross-layer conflict extraction
+- KB grounding
+- constrained root-cause proposal
+- evidence-chain derivation
+- hypothesis-oriented analysis outputs for later planning
+
+## Example realization
+Reference the upper analysis steps in `runloop_agent/demo.yaml`, including:
+
+- `summarize_jira_issue`
+- `extract_cross_layer_conflicts`
+- `kb_ground_case`
+- `propose_root_cause`
+- `extract_evidence_chains`
+
+## Out of scope for Milestone 2.2
+- formal debug-plan generation
+- `CODE_CHECK` / `DEVICE_CHECK` execution semantics
+- evidence-based closure
+- terminal outcome classification
+- repair / trace / checkpoint features
+
+## Status
+- [x] accomplished
+
+---
+
+# Milestone 2.3 — Analysis handoff and structured phase output
+
+## Goal
+Provide explicit analysis-phase handoff packaging so downstream phases can consume a bounded structured artifact instead of uncontrolled upstream state.
+
+This milestone establishes the phase-output boundary for the analysis layer.
+
+## Success condition
+A workflow can:
+
+- collect key analysis outputs into a structured handoff artifact
+- preserve the minimum downstream-useful analysis state
+- expose a bounded phase-level output for later planning or execution phases
+
+## Implementation focus
+- structured bundling of analysis outputs
+- phase-level handoff artifact design
+- downstream-friendly bounded artifact packaging
+- explicit analysis-phase output contract
+
+## Example realization
+Reference the handoff step in `runloop_agent/demo.yaml`, including:
+
+- `summary_analysis_data`
+- `artifact_bundle_step`
+- `artifact:summary_analysis_data` as the analysis-phase handoff artifact
+
+## Out of scope for Milestone 2.3
+- debug-plan generation itself
+- check execution realization
+- evidence closure
+- terminal outcome classification
+
+## Status
+- [x] accomplished
+
+---
+
 # Milestone 2.5 — Extra work completed beyond M2
 
 ## Goal
-Record major analysis/runtime capabilities that were completed on top of the M2 foundation, but were not part of the original M2 contract.
+Record major capabilities that were completed on top of the M2 foundation, but were not part of the original M2 contract or the planned M2.1 / M2.2 / M2.3 analysis split.
 
 ## Status
 - [x] accomplished
 
 ## Completed extras
-- [x] analysis-oriented multi-step workflow in `runloop_agent/demo.yaml`
-  - [x] `extract_component_scope`
-  - [x] `extract_platform_context`
-  - [x] `extract_cross_layer_conflicts`
-  - [x] `propose_root_cause`
-  - [x] `extract_evidence_chains`
 - [x] model output robustness improvements in `output_parser.py`
   - [x] fenced JSON fallback
   - [x] first-JSON fallback
-- [x] workflow observability improvements
+- [x] workflow observability improvements beyond the basic M2 contract
   - [x] real-time stream log support
   - [x] prompt dump support (`SIMPLE_RLA_DUMP_LLM_PROMPTS=1`)
   - [x] prompt observability metrics in `step_runner.py`
@@ -200,9 +422,6 @@ Record major analysis/runtime capabilities that were completed on top of the M2 
   - [x] call trace frame extraction
   - [x] dmesg timestamp normalization for trace merge/diff
   - [x] call-trace line index fix
-- [x] handoff artifact bundling support
-  - [x] `artifact_bundle_step`
-  - [x] `artifact:summary_analysis_data` as phase handoff bundle
 
 ## Notes / reminder
 - The following original M2 items are still not clearly complete and should be re-checked before declaring full closure:
