@@ -433,85 +433,102 @@ Record major capabilities that were completed on top of the M2 foundation, but w
 
 ---
 
-# Milestone 3 — Repair, trace, checkpoint
+# Milestone 3 — Check Execution runtime substrate
 
 ## Goal
-Make the new runtime debuggable and bounded when model output is invalid or unstable.
+Establish the technical substrate for the `Check Execution` phase.
+
+This milestone provides the runtime-level capability needed to execute structured checks, realize them through MCP-backed tool paths, return structured execution results, and support evidence-producing execution for later phases.
+
+M3 is about the execution substrate itself. It is not yet the milestone for concrete `CODE_CHECK` / `DEVICE_CHECK` workflow realizations.
 
 ## Success condition
-When a step produces invalid structured output:
-- runtime can perform bounded repair
-- trace records what happened
-- step/phase/workflow dumps are persisted
+The runtime can:
+
+- represent check execution as a first-class phase capability
+- support the two primary check item types:
+  - `CODE_CHECK`
+  - `DEVICE_CHECK`
+- realize `CODE_CHECK` through MCP-backed code-side tool capabilities
+- realize `DEVICE_CHECK` through MCP-backed device/runtime-side tool capabilities
+- route checks through appropriate execution capability paths
+- execute checks through a structured execution contract
+- normalize MCP tool results into structured execution results
+- return structured evidence outputs from executed checks
+- represent check-level execution outcomes such as:
+  - `COMPLETED`
+  - `INCONCLUSIVE`
+  - `BLOCKED`
+  - `FAILED`
+  - `DEFERRED`
+- preserve traceable linkage between:
+  - check identity
+  - check type
+  - execution result
+  - returned evidence
 
 ---
 
 ## Create
 
-### 1. `repair_controller.py`
-- [ ] define repair-decision interface
-- [ ] convert validation errors into repair instructions
-- [ ] bound repair count
-- [ ] tell `step_runner.py` whether to retry or terminate
+### 1. Check execution data model / schema layer
+- [ ] define the minimum execution-side data model for `CODE_CHECK` and `DEVICE_CHECK`
+- [ ] define structured execution-result representation
+- [ ] define structured evidence-return representation
+- [ ] define check-level outcome/status representation
+- [ ] define minimum linkage fields between:
+  - [ ] check identity
+  - [ ] check type
+  - [ ] execution result
+  - [ ] returned evidence
 
-### 2. `trace_store.py`
-- [ ] define trace event structure
-- [ ] implement JSONL trace writer
-- [ ] support events for:
-  - [ ] workflow start/end
-  - [ ] phase start/end
-  - [ ] step start/end
-  - [ ] model turn
-  - [ ] tool call
-  - [ ] tool result
-  - [ ] parse result
-  - [ ] validation result
-  - [ ] repair event
-  - [ ] checkpoint event
+### 2. MCP-backed execution substrate
+- [ ] define MCP-backed realization path for `CODE_CHECK`
+- [ ] define MCP-backed realization path for `DEVICE_CHECK`
+- [ ] define routing rules from check type to MCP tool surface
+- [ ] define tool-result normalization rules for execution-phase use
+- [ ] define minimum execution boundary between check object and MCP tool call
 
-### 3. `checkpoint_store.py`
-- [ ] define checkpoint persistence interface
-- [ ] save phase checkpoint
-- [ ] save workflow checkpoint
-- [ ] optionally save step dump
-- [ ] use local JSON files in v1
+### 3. Evidence and result packaging layer
+- [ ] define how executed checks emit structured evidence outputs
+- [ ] define how execution results are packaged for downstream evidence closure
+- [ ] preserve code-side and device-side evidence distinction
+- [ ] preserve supporting execution metadata needed for later interpretation
 
 ---
 
 ## Modify
 
-### 4. `step_runner.py`
-- [ ] integrate `repair_controller.py`
-- [ ] support bounded repair loop
-- [ ] emit trace events at turn / parse / validation / repair points
+### 4. Runtime orchestration integration
+- [ ] extend runtime/phase execution so `Check Execution` can exist as a first-class phase capability
+- [ ] add execution-path support for structured check handling
+- [ ] integrate MCP-backed check realization into the runtime execution path
+- [ ] ensure execution results can flow back into workflow/phase artifacts cleanly
 
-### 5. `step_validator.py`
-- [ ] classify validation failures into:
-  - [ ] accepted
-  - [ ] repairable
-  - [ ] blocking
+### 5. Step / phase / result interfaces
+- [ ] ensure step/phase/result interfaces can carry structured check-execution state
+- [ ] ensure runtime result objects can carry evidence outputs and execution outcomes
+- [ ] ensure downstream phases can consume execution artifacts without reopening raw tool output
 
-### 6. `workflow_runtime.py`
-- [ ] add trace hook calls at workflow / phase / step boundaries
-- [ ] trigger checkpoint persistence on phase completion
-- [ ] trigger workflow checkpoint on finalize
-
-### 7. `step.py`
-- [ ] ensure `StepResult` / diagnostics can carry repair and usage metadata cleanly
-
-### 8. `phase.py`
-- [ ] ensure phase checkpoint metadata can carry trace/checkpoint references if needed
-
-### 9. `workflow_demo.py`
-- [ ] add a demo path that intentionally produces invalid output once and exercises repair
+### 6. Minimal observability for execution substrate
+- [ ] preserve enough diagnostics to inspect check execution behavior
+- [ ] preserve enough metadata to understand which MCP capability path was used
+- [ ] preserve enough runtime output to debug execution-result normalization failures if they occur
 
 ---
 
 ## Out of scope for Milestone 3
-- artifact visibility engine
-- artifact compaction engine
+- concrete `CODE_CHECK` workflow steps
+- concrete `DEVICE_CHECK` workflow steps
+- demo-specific execution choreography
+- debug-plan generation implementation
+- evidence-closure implementation
+- terminal outcome classification
+- bounded repair / trace / checkpoint as the primary milestone goal
 - full resume/recovery protocol
 
+## Status
+- [ ] planned
 ---
 
 # Milestone 4 — Artifact selection and compaction

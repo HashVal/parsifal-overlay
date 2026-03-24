@@ -275,25 +275,54 @@ This milestone exists to separate:
 
 ---
 
-## Milestone 3 — Repair, trace, checkpoint
+## Milestone 3 — Check Execution runtime substrate
 
 ### Goal
-Make the new runtime debuggable and bounded when model output is invalid or unstable.
+Establish the technical substrate for the `Check Execution` phase.
+
+This milestone provides the runtime-level capability needed to execute structured checks, realize them through MCP-backed tool paths, return structured execution results, and support evidence-producing execution for later phases.
+
+M3 is about the execution substrate itself. It is not yet the milestone for concrete `CODE_CHECK` / `DEVICE_CHECK` workflow realizations.
 
 ### Success condition
-When a step produces invalid structured output:
-- the runtime can perform bounded repair
-- trace records what happened
-- step/phase/workflow dumps are persisted
+The runtime can:
+- represent check execution as a first-class phase capability
+- support the two primary check item types:
+  - `CODE_CHECK`
+  - `DEVICE_CHECK`
+- realize `CODE_CHECK` through MCP-backed code-side tool capabilities
+- realize `DEVICE_CHECK` through MCP-backed device/runtime-side tool capabilities
+- route checks through appropriate execution capability paths
+- execute checks through a structured execution contract
+- normalize MCP tool results into structured execution results
+- return structured evidence outputs from executed checks
+- represent check-level execution outcomes such as:
+  - `COMPLETED`
+  - `INCONCLUSIVE`
+  - `BLOCKED`
+  - `FAILED`
+  - `DEFERRED`
+- preserve traceable linkage between:
+  - check identity
+  - check type
+  - execution result
+  - returned evidence
 
 ### Scope
-This milestone is intended to add:
-- bounded repair control
-- trace event persistence
-- checkpoint persistence
-- workflow/phase/step debugability when output is unstable
+This milestone is intended to establish:
+- the technical runtime boundary for `Check Execution`
+- the minimum object model for executable checks
+- MCP-backed execution affordances for `CODE_CHECK` and `DEVICE_CHECK`
+- structured execution-state representation
+- structured evidence packaging for later closure/evaluation
+- runtime-level support for future check-execution phase implementations
 
 ### Out of scope
-- artifact visibility engine
-- artifact compaction engine
+- concrete `CODE_CHECK` workflow steps
+- concrete `DEVICE_CHECK` workflow steps
+- demo-specific execution choreography
+- debug-plan generation implementation
+- evidence-closure implementation
+- terminal outcome classification
+- bounded repair / trace / checkpoint as the primary milestone goal
 - full resume/recovery protocol

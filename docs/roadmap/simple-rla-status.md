@@ -26,6 +26,8 @@ The current structure should be read as:
 
 The project has not yet entered a completed M3 state.
 
+The current M3 definition is now centered on `Check Execution` runtime substrate work rather than the older repair/trace/checkpoint framing.
+
 ---
 
 ## Milestone 1 — Minimal runtime backbone
@@ -152,16 +154,18 @@ The project has not yet entered a completed M3 state.
 
 ---
 
-## Milestone 3 — Repair, trace, checkpoint
+## Milestone 3 — Check Execution runtime substrate
 
 ### Status
 - NOT STARTED
 
 ### Planned direction
-- bounded repair when model output is invalid or unstable
-- trace event persistence
-- checkpoint persistence
-- stronger runtime debugability and bounded recovery behavior
+- establish `Check Execution` as a first-class runtime phase capability
+- support `CODE_CHECK` and `DEVICE_CHECK` as the two primary check item types
+- realize both check types through MCP-backed execution paths
+- define structured execution-result and evidence-return models
+- define check-level outcome semantics for downstream closure/evaluation
 
 ### Notes
-- M3 has not yet been reworked against the newer spec structure and recent roadmap refinements.
+- M3 is now framed as execution substrate work, not as the old repair/trace/checkpoint milestone.
+- Concrete `CODE_CHECK` / `DEVICE_CHECK` workflow realizations are deferred to future M3.x milestones.
