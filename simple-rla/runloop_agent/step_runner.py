@@ -189,6 +189,9 @@ def _build_final_result(
         "raw_model_output": response_text,
         **(diagnostics_extra or {}),
     }
+    reasoning_text = (diagnostics_extra or {}).get("reasoning_text")
+    if isinstance(reasoning_text, str) and reasoning_text.strip():
+        diagnostics["reasoning_text"] = reasoning_text
     reasoning_text = None
     if diagnostics_extra:
         reasoning_text = diagnostics_extra.get("reasoning_text")
@@ -278,6 +281,9 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
             error=StepErrorInfo(code="model_error", message=str(exc)),
         )
     diagnostics_extra = dict(prompt_obs)
+    reasoning_text = getattr(response, "reasoning_text", None)
+    if isinstance(reasoning_text, str) and reasoning_text.strip():
+        diagnostics_extra["reasoning_text"] = reasoning_text
     if stream_path:
         diagnostics_extra["stream_log_path"] = stream_path
     if prompt_dump_path:
@@ -370,6 +376,9 @@ def run_llm_tool_step(
                     "tool_loop_message_chars": _json_size(messages),
                     "tool_call_count": len(tool_calls),
                 }
+                reasoning_text = getattr(response, "reasoning_text", None)
+                if isinstance(reasoning_text, str) and reasoning_text.strip():
+                    diagnostics_extra["reasoning_text"] = reasoning_text
                 reasoning_text = getattr(response, "reasoning_text", None)
                 if isinstance(reasoning_text, str) and reasoning_text.strip():
                     diagnostics_extra["reasoning_text"] = reasoning_text
