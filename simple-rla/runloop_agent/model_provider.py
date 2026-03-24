@@ -16,6 +16,7 @@ class ModelResponse:
     usage: dict[str, Any] | None = None
     tool_requests: list[dict[str, Any]] | None = None
     backend: str | None = None
+    reasoning_text: str | None = None
 
 
 class ModelProvider:
@@ -78,6 +79,7 @@ class ModelProvider:
                 usage=None,
                 tool_requests=self._normalize_tool_requests(result.function_calls),
                 backend=self._api_mode,
+                reasoning_text=result.reasoning_text,
             )
 
         result = create_response(
@@ -95,6 +97,7 @@ class ModelProvider:
             usage=None,
             tool_requests=self._normalize_tool_requests(result.function_calls),
             backend=self._api_mode,
+            reasoning_text=None,
         )
 
     def generate_with_tools(
@@ -123,6 +126,7 @@ class ModelProvider:
                 usage=None,
                 tool_requests=self._normalize_tool_requests(result.function_calls),
                 backend=self._api_mode,
+                reasoning_text=result.reasoning_text,
             )
 
         result = create_response(
@@ -140,6 +144,7 @@ class ModelProvider:
             usage=None,
             tool_requests=self._normalize_tool_requests(result.function_calls),
             backend=self._api_mode,
+            reasoning_text=None,
         )
 
 

@@ -189,6 +189,11 @@ def _build_final_result(
         "raw_model_output": response_text,
         **(diagnostics_extra or {}),
     }
+    reasoning_text = None
+    if diagnostics_extra:
+        reasoning_text = diagnostics_extra.get("reasoning_text")
+    if isinstance(reasoning_text, str) and reasoning_text.strip():
+        diagnostics["raw_reasoning_output"] = reasoning_text
     if not parse_result.ok:
         diagnostics.update({
             "parse_ok": False,
@@ -277,6 +282,9 @@ def run_llm_step(spec: StepSpec, ctx: StepContext, provider: ModelProvider | Non
         diagnostics_extra["stream_log_path"] = stream_path
     if prompt_dump_path:
         diagnostics_extra["prompt_dump_path"] = prompt_dump_path
+    reasoning_text = getattr(response, "reasoning_text", None)
+    if isinstance(reasoning_text, str) and reasoning_text.strip():
+        diagnostics_extra["reasoning_text"] = reasoning_text
     return _build_final_result(
         spec=spec,
         prompt=prompt,
@@ -362,6 +370,9 @@ def run_llm_tool_step(
                     "tool_loop_message_chars": _json_size(messages),
                     "tool_call_count": len(tool_calls),
                 }
+                reasoning_text = getattr(response, "reasoning_text", None)
+                if isinstance(reasoning_text, str) and reasoning_text.strip():
+                    diagnostics_extra["reasoning_text"] = reasoning_text
                 if stream_path:
                     diagnostics_extra["stream_log_path"] = stream_path
                 return _build_final_result(

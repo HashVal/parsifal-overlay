@@ -37,6 +37,7 @@ class FunctionCall:
 class ChatCompletionsResult:
     response_id: str
     output_text: str
+    reasoning_text: str
     function_calls: list[FunctionCall]
     raw: dict[str, Any]
 
@@ -68,6 +69,27 @@ def _extract_output_text(data: dict[str, Any]) -> str:
             if isinstance(item, dict) and isinstance(item.get("text"), str):
                 parts.append(item["text"])
         return "\n".join(p for p in parts if p).strip()
+    return ""
+
+
+def _extract_reasoning_text(data: dict[str, Any]) -> str:
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    message = choices[0].get("message")
+    if not isinstance(message, dict):
+        return ""
+
+    direct = message.get("reasoning_content")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    provider_specific = message.get("provider_specific_fields")
+    if isinstance(provider_specific, dict):
+        for key in ("reasoning_content", "reasoning"):
+            value = provider_specific.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
     return ""
 
 
@@ -219,6 +241,7 @@ def _create_chat_completion_streaming(
     return ChatCompletionsResult(
         response_id=rid,
         output_text=_extract_output_text(final_data),
+        reasoning_text=_extract_reasoning_text(final_data),
         function_calls=_extract_function_calls(final_data),
         raw=final_data,
     )
@@ -287,6 +310,7 @@ def create_chat_completion(
     return ChatCompletionsResult(
         response_id=rid,
         output_text=_extract_output_text(data),
+        reasoning_text=_extract_reasoning_text(data),
         function_calls=_extract_function_calls(data),
         raw=data,
     )
