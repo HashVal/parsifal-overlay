@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -19,7 +20,8 @@ class ModelResponse:
 
 class ModelProvider:
     def __init__(self, *, api_mode: str | None = None) -> None:
-        self._api_mode = self._normalize_api_mode(api_mode)
+        resolved_mode = api_mode or os.environ.get("OPENAI_API_MODE")
+        self._api_mode = self._normalize_api_mode(resolved_mode)
 
     @staticmethod
     def _normalize_api_mode(api_mode: str | None) -> str:
