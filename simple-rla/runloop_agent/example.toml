@@ -9,6 +9,7 @@ protocol_version = "2024-11-05"
 [openai]
 api_key = ""
 base_url = "https://api.openai.com/v1"
+api_mode = "responses"  # responses | chat_completions
 
 [mcp]
 artifacts_root = "./artifacts/runloop"

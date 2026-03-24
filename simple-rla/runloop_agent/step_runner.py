@@ -19,17 +19,54 @@ def _extract_tool_requests(raw: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if raw is None:
         return out
+
     output = getattr(raw, "output", None)
-    if not isinstance(output, list):
+    if output is None and isinstance(raw, dict):
+        output = raw.get("output")
+    if isinstance(output, list):
+        for item in output:
+            item_type = getattr(item, "type", None) or (item.get("type") if isinstance(item, dict) else None)
+            if item_type != "function_call":
+                continue
+            name = getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else None)
+            arguments = getattr(item, "arguments", None) or (item.get("arguments") if isinstance(item, dict) else None)
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except Exception:
+                    arguments = {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            out.append({"name": str(name), "arguments": arguments})
+        if out:
+            return out
+
+    choices = raw.get("choices") if isinstance(raw, dict) else None
+    if not isinstance(choices, list):
         return out
-    for item in output:
-        item_type = getattr(item, "type", None) or (item.get("type") if isinstance(item, dict) else None)
-        if item_type != "function_call":
+    if not choices:
+        return out
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    if not isinstance(message, dict):
+        return out
+    tool_calls = message.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        return out
+    for item in tool_calls:
+        if not isinstance(item, dict):
             continue
-        name = getattr(item, "name", None) or (item.get("name") if isinstance(item, dict) else None)
-        arguments = getattr(item, "arguments", None) or (item.get("arguments") if isinstance(item, dict) else None)
+        if item.get("type") != "function":
+            continue
+        fn = item.get("function")
+        if not isinstance(fn, dict):
+            continue
+        name = fn.get("name")
+        arguments = fn.get("arguments")
         if isinstance(arguments, str):
-            arguments = json.loads(arguments)
+            try:
+                arguments = json.loads(arguments)
+            except Exception:
+                arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
         out.append({"name": str(name), "arguments": arguments})
@@ -314,8 +351,10 @@ def run_llm_tool_step(
                 enable_real_time_output=bool(ctx.metadata.get("enable_real_time_output")),
                 stream_observer=stream_observer,
             )
-            response_text = getattr(response, "output_text", None) or ""
-            requests = _extract_tool_requests(getattr(response, "raw", None))
+            response_text = getattr(response, "text", None) or getattr(response, "output_text", None) or ""
+            requests = getattr(response, "tool_requests", None)
+            if not isinstance(requests, list):
+                requests = _extract_tool_requests(getattr(response, "raw", None))
             if not requests:
                 diagnostics_extra = {
                     **prompt_obs,

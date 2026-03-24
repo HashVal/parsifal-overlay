@@ -27,6 +27,7 @@ class RuntimeConfig:
     protocol_version: str | None = None
     openai_api_key: str | None = None
     openai_base_url: str | None = None
+    openai_api_mode: str | None = None
     artifacts_root: str | None = None
     mcp_servers: tuple[McpServerConfig, ...] = ()
 
@@ -85,6 +86,7 @@ def load_runtime_config(path: str | Path | None) -> RuntimeConfig:
 
     openai_api_key = os.environ.get("OPENAI_API_KEY") or openai.get("api_key")
     openai_base_url = os.environ.get("OPENAI_BASE_URL") or openai.get("base_url")
+    openai_api_mode = os.environ.get("OPENAI_API_MODE") or openai.get("api_mode")
     artifacts_root = os.environ.get("SIMPLE_RLA_ARTIFACTS_ROOT") or mcp.get("artifacts_root")
 
     return RuntimeConfig(
@@ -93,6 +95,7 @@ def load_runtime_config(path: str | Path | None) -> RuntimeConfig:
         protocol_version=str(protocol_version) if protocol_version else None,
         openai_api_key=str(openai_api_key) if openai_api_key else None,
         openai_base_url=str(openai_base_url) if openai_base_url else None,
+        openai_api_mode=str(openai_api_mode) if openai_api_mode else None,
         artifacts_root=str(artifacts_root) if artifacts_root else None,
         mcp_servers=_parse_mcp_servers(data),
     )
@@ -103,6 +106,8 @@ def apply_runtime_config(cfg: RuntimeConfig) -> None:
         os.environ["OPENAI_API_KEY"] = cfg.openai_api_key
     if cfg.openai_base_url:
         os.environ["OPENAI_BASE_URL"] = cfg.openai_base_url
+    if cfg.openai_api_mode:
+        os.environ["OPENAI_API_MODE"] = cfg.openai_api_mode
     if cfg.model:
         os.environ.setdefault("OPENAI_MODEL", cfg.model)
     if cfg.timeout_s is not None:
