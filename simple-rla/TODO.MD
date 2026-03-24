@@ -706,4 +706,162 @@ A workflow can:
 
 ---
 
+# Milestone 3.3 — Code-check execution realization
+
+## Goal
+Provide the second concrete execution realization on top of the M3 `Check Execution` substrate by executing assembled `CODE_CHECK` items through MCP-backed code-side capabilities.
+
+This milestone turns execution-ready `CODE_CHECK` objects into real code-side evidence-producing actions.
+
+## Success condition
+A workflow can:
+
+- consume execution-ready `CODE_CHECK` inputs produced by earlier assembly steps
+- resolve code-side execution targets and execution scope for those checks
+- invoke appropriate MCP-backed code-side capabilities
+- return structured execution results for executed `CODE_CHECK` items
+- return structured code-side evidence outputs
+- classify each executed `CODE_CHECK` into check-level outcomes such as:
+  - `COMPLETED`
+  - `INCONCLUSIVE`
+  - `BLOCKED`
+  - `FAILED`
+  - `DEFERRED`
+
+---
+
+## Create
+
+### 1. Code-check execution target and scope layer
+- [ ] define how assembled `CODE_CHECK` targets are resolved into execution-ready code-side targets
+- [ ] define how execution scope is bounded for a given `CODE_CHECK`
+- [ ] define the minimum target and scope fields required for code-side execution
+- [ ] define how missing, ambiguous, or non-resolvable code-side targets are represented before invocation
+
+### 2. MCP-backed code-check invocation layer
+- [ ] define the MCP-backed execution path for `CODE_CHECK`
+- [ ] define how code-side capability families are selected for a given `CODE_CHECK`
+- [ ] define invocation rules from execution-ready `CODE_CHECK` data to code-side MCP tool requests
+- [ ] define how supporting capability needs are carried into invocation without changing the primary `CODE_CHECK` type
+
+### 3. Code execution-result normalization layer
+- [ ] define how raw MCP code-side outputs are normalized into structured `CODE_CHECK` execution results
+- [ ] define the minimum execution-result fields preserved after code-side execution
+- [ ] define how execution diagnostics and invocation metadata are retained for later interpretation
+
+### 4. Code evidence extraction layer
+- [ ] define how structured code-side evidence is extracted from normalized execution results
+- [ ] define the minimum evidence fields needed by later evidence-integration or closure milestones
+- [ ] preserve code-side evidence distinction from device-side evidence outputs
+
+---
+
+## Modify
+
+### 5. Runtime / phase integration for `CODE_CHECK`
+- [ ] add runtime support for executing assembled `CODE_CHECK` items as part of `Check Execution`
+- [ ] ensure code-check execution outputs can flow into workflow/phase artifacts cleanly
+- [ ] ensure code-check execution remains separable from `DEVICE_CHECK` execution realization
+
+### 6. Outcome application for real code-check runs
+- [ ] apply check-level outcome semantics to real `CODE_CHECK` execution results
+- [ ] define how `COMPLETED`, `INCONCLUSIVE`, `BLOCKED`, `FAILED`, and `DEFERRED` are determined for code-side execution
+- [ ] ensure outcome determination remains tied to execution reality rather than later evidence evaluation
+
+### 7. Minimal diagnostics for code-check realization
+- [ ] preserve enough diagnostics to inspect target and scope resolution for `CODE_CHECK`
+- [ ] preserve enough diagnostics to inspect MCP capability selection for code-side execution
+- [ ] preserve enough diagnostics to inspect normalization failures or evidence-extraction failures when needed
+
+---
+
+## Out of scope for Milestone 3.3
+- `DEVICE_CHECK` execution realization
+- combined code/device evidence integration
+- debug-plan generation or revision
+- evidence evaluation or terminal outcome classification
+- full `Check Execution` phase completion across all check families
+
+## Status
+- [ ] planned
+
+---
+
+# Milestone 3.4 — Structured check evidence integration
+
+## Goal
+Provide the integration layer on top of concrete `DEVICE_CHECK` and `CODE_CHECK` execution realizations by packaging their outputs into a unified structured evidence artifact for downstream phases.
+
+This milestone does not evaluate evidence or determine final debug outcomes. It prepares executed-check outputs for later evidence-closure use.
+
+## Success condition
+A workflow can:
+
+- consume structured outputs from executed `DEVICE_CHECK` items
+- consume structured outputs from executed `CODE_CHECK` items
+- preserve check identity, check type, execution outcome, and evidence linkage during integration
+- package code-side and device-side evidence into a unified downstream-consumable structure
+- preserve evidence distinction without collapsing all evidence into an untyped bundle
+- emit a bounded structured check-evidence artifact for later evidence-closure phases
+
+---
+
+## Create
+
+### 1. Integrated check-evidence data model
+- [ ] define the unified structured artifact for integrated check evidence
+- [ ] define how `CODE_CHECK` and `DEVICE_CHECK` outputs are represented within the same integration object
+- [ ] define the minimum linkage fields preserved for each integrated check:
+  - [ ] check identity
+  - [ ] check type
+  - [ ] execution outcome
+  - [ ] returned evidence
+- [ ] define how integrated evidence remains bounded and downstream-consumable
+
+### 2. Code/device evidence integration layer
+- [ ] define how structured code-side evidence is incorporated into the integrated artifact
+- [ ] define how structured device-side evidence is incorporated into the integrated artifact
+- [ ] define how evidence from multiple executed checks is merged without losing per-check traceability
+- [ ] define how absent, partial, or inconclusive evidence is represented during integration
+
+### 3. Downstream evidence-package output
+- [ ] define the emitted artifact shape for downstream evidence-closure use
+- [ ] define how integrated evidence is packaged without requiring direct reopening of raw execution outputs
+- [ ] define the minimum metadata needed by later phases to interpret integrated evidence safely
+
+---
+
+## Modify
+
+### 4. Runtime / phase integration for evidence packaging
+- [ ] add runtime support for packaging executed check outputs into an integrated evidence artifact
+- [ ] ensure integrated evidence artifacts can flow cleanly into later phases
+- [ ] ensure evidence packaging remains separate from check execution itself
+
+### 5. Step / result interface support for integrated evidence
+- [ ] ensure step/result interfaces can carry integrated check-evidence artifacts cleanly
+- [ ] ensure downstream phases can consume integrated evidence without re-reading raw per-check execution outputs
+- [ ] ensure integrated evidence output remains separate from final evidence evaluation or terminal outcome objects
+
+### 6. Minimal diagnostics for evidence integration
+- [ ] preserve enough diagnostics to inspect how per-check evidence was integrated
+- [ ] preserve enough diagnostics to inspect missing, partial, or dropped evidence during packaging
+- [ ] preserve enough diagnostics to inspect linkage failures between execution results and integrated evidence if they occur
+
+---
+
+## Out of scope for Milestone 3.4
+- execution of `DEVICE_CHECK`
+- execution of `CODE_CHECK`
+- debug-plan generation or revision
+- evidence evaluation
+- terminal outcome classification
+- hypothesis confirmation or rejection
+- `REFRAME` decision-making
+
+## Status
+- [ ] planned
+
+---
+
 # Milestone 4 — Artifact selection and compaction

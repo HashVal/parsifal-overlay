@@ -293,6 +293,7 @@ The runtime can:
 - realize `CODE_CHECK` through MCP-backed code-side tool capabilities
 - realize `DEVICE_CHECK` through MCP-backed device/runtime-side tool capabilities
 - route checks through appropriate execution capability paths
+- assemble execution-ready checks into invocation-ready MCP requests
 - execute checks through a structured execution contract
 - normalize MCP tool results into structured execution results
 - return structured evidence outputs from executed checks
@@ -326,3 +327,151 @@ This milestone is intended to establish:
 - terminal outcome classification
 - bounded repair / trace / checkpoint as the primary milestone goal
 - full resume/recovery protocol
+
+---
+
+## Milestone 3.1 — Debug-plan interpretation and check assembly
+
+### Goal
+Provide the first concrete realization layer on top of the M3 `Check Execution` substrate by interpreting `DEBUG_STEPS` and assembling execution-ready check data.
+
+This milestone bridges the gap between planning artifacts and execution objects. It does not yet execute checks, but it must transform debug-plan output into structured `CODE_CHECK` and `DEVICE_CHECK` inputs that later execution milestones can consume.
+
+### Success condition
+A workflow can:
+- consume `DEBUG_STEPS` / `DEBUG_PLAN` as structured planning input
+- interpret the planning artifact into execution-ready check objects
+- distinguish and assemble:
+  - `CODE_CHECK`
+  - `DEVICE_CHECK`
+- preserve hypothesis linkage and evidence-gap intent in assembled checks
+- preserve execution-relevant fields such as:
+  - target
+  - purpose
+  - evidence sought
+  - expected interpretation
+  - supporting capability needs where relevant
+- emit a bounded structured check-assembly artifact for downstream execution milestones
+
+### Scope
+This milestone focuses on the planning-to-execution bridge:
+- reading `DEBUG_STEPS` / `DEBUG_PLAN` as structured planning input
+- interpreting planning semantics into execution-facing fields
+- classifying assembled checks into `CODE_CHECK` and `DEVICE_CHECK`
+- packaging a bounded structured check-assembly artifact for later execution milestones
+
+### Out of scope
+- executing `CODE_CHECK`
+- executing `DEVICE_CHECK`
+- MCP tool invocation
+- real execution evidence return
+- evidence evaluation or outcome classification
+- revising the debug plan itself
+
+---
+
+## Milestone 3.2 — Device-check execution realization
+
+### Goal
+Provide the first concrete execution realization on top of the M3 `Check Execution` substrate by executing assembled `DEVICE_CHECK` items through MCP-backed device/runtime-side capabilities.
+
+This milestone turns execution-ready `DEVICE_CHECK` objects into real device-side evidence-producing actions.
+
+### Success condition
+A workflow can:
+- consume execution-ready `DEVICE_CHECK` inputs produced by earlier assembly steps
+- resolve device/runtime-side execution targets for those checks
+- invoke appropriate MCP-backed device/runtime-side capabilities
+- return structured execution results for executed `DEVICE_CHECK` items
+- return structured device-side evidence outputs
+- classify each executed `DEVICE_CHECK` into check-level outcomes such as:
+  - `COMPLETED`
+  - `INCONCLUSIVE`
+  - `BLOCKED`
+  - `FAILED`
+  - `DEFERRED`
+
+### Scope
+This milestone focuses on the concrete runtime realization of assembled `DEVICE_CHECK` items:
+- device/runtime-side execution target resolution
+- MCP-backed device/runtime-side execution for check handling
+- structured device-check execution results
+- structured device-side evidence output for later integration
+
+### Out of scope
+- `CODE_CHECK` execution realization
+- combined code/device evidence integration
+- debug-plan generation or revision
+- evidence evaluation or terminal outcome classification
+- full `Check Execution` phase completion across all check families
+
+---
+
+## Milestone 3.3 — Code-check execution realization
+
+### Goal
+Provide the second concrete execution realization on top of the M3 `Check Execution` substrate by executing assembled `CODE_CHECK` items through MCP-backed code-side capabilities.
+
+This milestone turns execution-ready `CODE_CHECK` objects into real code-side evidence-producing actions.
+
+### Success condition
+A workflow can:
+- consume execution-ready `CODE_CHECK` inputs produced by earlier assembly steps
+- resolve code-side execution targets and execution scope for those checks
+- invoke appropriate MCP-backed code-side capabilities
+- return structured execution results for executed `CODE_CHECK` items
+- return structured code-side evidence outputs
+- classify each executed `CODE_CHECK` into check-level outcomes such as:
+  - `COMPLETED`
+  - `INCONCLUSIVE`
+  - `BLOCKED`
+  - `FAILED`
+  - `DEFERRED`
+
+### Scope
+This milestone focuses on the concrete runtime realization of assembled `CODE_CHECK` items:
+- code-side execution target and scope resolution
+- MCP-backed code-side execution for check handling
+- structured code-check execution results
+- structured code-side evidence output for later integration
+
+### Out of scope
+- `DEVICE_CHECK` execution realization
+- combined code/device evidence integration
+- debug-plan generation or revision
+- evidence evaluation or terminal outcome classification
+- full `Check Execution` phase completion across all check families
+
+---
+
+## Milestone 3.4 — Structured check evidence integration
+
+### Goal
+Provide the integration layer on top of concrete `DEVICE_CHECK` and `CODE_CHECK` execution realizations by packaging their outputs into a unified structured evidence artifact for downstream phases.
+
+This milestone does not evaluate evidence or determine final debug outcomes. It prepares executed-check outputs for later evidence-closure use.
+
+### Success condition
+A workflow can:
+- consume structured outputs from executed `DEVICE_CHECK` items
+- consume structured outputs from executed `CODE_CHECK` items
+- preserve check identity, check type, execution outcome, and evidence linkage during integration
+- package code-side and device-side evidence into a unified downstream-consumable structure
+- preserve evidence distinction without collapsing all evidence into an untyped bundle
+- emit a bounded structured check-evidence artifact for later evidence-closure phases
+
+### Scope
+This milestone focuses on evidence integration and packaging:
+- integration of executed `CODE_CHECK` and `DEVICE_CHECK` outputs
+- a unified structured evidence package for downstream use
+- stable linkage between executed checks and returned evidence
+- downstream-ready evidence artifacts that do not require reopening raw execution output
+
+### Out of scope
+- execution of `DEVICE_CHECK`
+- execution of `CODE_CHECK`
+- debug-plan generation or revision
+- evidence evaluation
+- terminal outcome classification
+- hypothesis confirmation or rejection
+- `REFRAME` decision-making

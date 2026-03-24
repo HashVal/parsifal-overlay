@@ -28,6 +28,12 @@ The project has not yet entered a completed M3 state.
 
 The current M3 definition is now centered on `Check Execution` runtime substrate work rather than the older repair/trace/checkpoint framing.
 
+The M3.x realization tree has now been clarified in planning:
+- M3.1 = debug-plan interpretation and check assembly
+- M3.2 = `DEVICE_CHECK` execution realization
+- M3.3 = `CODE_CHECK` execution realization
+- M3.4 = structured check evidence integration
+
 ---
 
 ## Milestone 1 — Minimal runtime backbone
@@ -165,7 +171,79 @@ The current M3 definition is now centered on `Check Execution` runtime substrate
 - realize both check types through MCP-backed execution paths
 - define structured execution-result and evidence-return models
 - define check-level outcome semantics for downstream closure/evaluation
+- define the execution-request assembly bridge from execution-ready checks to invocation-ready MCP requests
 
 ### Notes
 - M3 is now framed as execution substrate work, not as the old repair/trace/checkpoint milestone.
-- Concrete `CODE_CHECK` / `DEVICE_CHECK` workflow realizations are deferred to future M3.x milestones.
+- Concrete `CODE_CHECK` / `DEVICE_CHECK` workflow realizations are deferred to the M3.x subtree.
+
+---
+
+## Milestone 3.1 — Debug-plan interpretation and check assembly
+
+### Status
+- PLANNED
+
+### Planned direction
+- consume `DEBUG_STEPS` / `DEBUG_PLAN` as structured planning input
+- interpret planning artifacts into execution-ready check objects
+- classify and assemble `CODE_CHECK` and `DEVICE_CHECK`
+- emit a bounded structured check-assembly artifact for later execution milestones
+
+### Notes
+- M3.1 is the planning-to-execution bridge.
+- It does not execute checks or invoke MCP tools.
+
+---
+
+## Milestone 3.2 — Device-check execution realization
+
+### Status
+- PLANNED
+
+### Planned direction
+- execute assembled `DEVICE_CHECK` items through MCP-backed device/runtime-side capabilities
+- resolve device/runtime-side execution targets
+- return structured device-check execution results
+- return structured device-side evidence outputs
+- apply check-level outcomes to real device-check runs
+
+### Notes
+- M3.2 is the first concrete execution realization under M3.
+- It remains upstream of integrated evidence packaging and evidence closure.
+
+---
+
+## Milestone 3.3 — Code-check execution realization
+
+### Status
+- PLANNED
+
+### Planned direction
+- execute assembled `CODE_CHECK` items through MCP-backed code-side capabilities
+- resolve code-side execution targets and execution scope
+- return structured code-check execution results
+- return structured code-side evidence outputs
+- apply check-level outcomes to real code-check runs
+
+### Notes
+- M3.3 complements M3.2 by realizing the second primary check family.
+- It remains upstream of integrated evidence packaging and evidence closure.
+
+---
+
+## Milestone 3.4 — Structured check evidence integration
+
+### Status
+- PLANNED
+
+### Planned direction
+- consume structured outputs from executed `DEVICE_CHECK` items
+- consume structured outputs from executed `CODE_CHECK` items
+- preserve check identity, check type, execution outcome, and evidence linkage during integration
+- package code-side and device-side evidence into a unified downstream-consumable structure
+- emit a bounded structured check-evidence artifact for later evidence-closure phases
+
+### Notes
+- M3.4 integrates evidence outputs from the concrete execution realizations.
+- It does not evaluate evidence or determine final debug outcomes.
