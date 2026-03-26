@@ -14,6 +14,22 @@ api_mode = "responses"  # responses | chat_completions
 [mcp]
 artifacts_root = "./artifacts/runloop"
 
+[code]
+default_repo = ""
+
+# Example repo layout for CODE_CHECK resolution:
+# [repos.app]
+# repo_url = "git@github.com:org/app.git"
+# default_ref = "origin/main"
+# repo_path = "/work/source/app"
+# require_force_fetch = false
+#
+# [repos.kernel]
+# repo_url = "git@github.com:org/kernel.git"
+# default_ref = "origin/dev"
+# repo_path = "/work/source/kernel"
+# require_force_fetch = false
+
 [mcp.servers.files]
 command = "python3"
 args = ["-m", "mcp_servers.file_tools_server_v2"]
@@ -25,6 +41,10 @@ FILE_TOOLS_MAX_FILE_BYTES = "8388608"
 [mcp.servers.kb]
 command = "python3"
 args = ["-m", "mcp_servers.kb_server"]
+
+[mcp.servers.code]
+command = "python3"
+args = ["-m", "mcp_servers.code_tools_server"]
 
 [mcp.servers.jira]
 command = "python3"

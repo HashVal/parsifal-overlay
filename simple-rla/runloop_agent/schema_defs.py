@@ -56,6 +56,8 @@ class ToolResultEnvelope:
 UNIFIED_CONFIG_NOTES: dict[str, Any] = {
     "runtime": ["model", "timeout_s", "protocol_version"],
     "openai": ["api_key", "base_url"],
+    "code": ["default_repo"],
+    "repos.*": ["repo_url", "default_ref", "repo_path", "require_force_fetch"],
     "mcp": ["artifacts_root"],
     "mcp.servers.*": ["command", "args", "cwd", "env"],
 }

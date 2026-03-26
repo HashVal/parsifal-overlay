@@ -13,6 +13,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from runloop_agent.mcp_client import McpClient
+from runloop_agent.code_repo import RepoRegistry
 from runloop_agent.runtime_config import apply_runtime_config, load_runtime_config
 from runloop_agent.workflow_dump import (
     default_dump_dir,
@@ -53,6 +54,7 @@ def main() -> None:
 
     runtime_cfg = load_runtime_config(args.config_file)
     apply_runtime_config(runtime_cfg)
+    repo_registry = RepoRegistry.from_runtime_config(runtime_cfg) if runtime_cfg.repos else None
 
     workflow_id = _peek_workflow_id(args.config)
     run_root = default_dump_dir(workflow_id, base_dir=runtime_cfg.artifacts_root)
@@ -83,13 +85,14 @@ def main() -> None:
             initial_artifacts["platform_inventory"] = inventory_path.read_text(encoding="utf-8")
 
         log.info(
-            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s realtime_output=%s platform_inventory=%s",
+            "workflow_demo.start config=%s workflow_id=%s run_root=%s initial_artifacts=%s realtime_output=%s platform_inventory=%s repo_count=%s",
             args.config,
             spec.workflow_id,
             str(run_root),
             sorted(initial_artifacts.keys()),
             args.enable_real_time_output,
             args.platform_inventory,
+            len(repo_registry.list_repos()) if repo_registry is not None else 0,
         )
         runtime = WorkflowRuntime(spec, incremental_dump_dir=str(run_root))
         state = runtime.run(

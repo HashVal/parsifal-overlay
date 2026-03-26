@@ -21,6 +21,15 @@ class McpServerConfig:
 
 
 @dataclass(frozen=True)
+class RepoConfig:
+    name: str
+    repo_url: str | None = None
+    default_ref: str | None = None
+    repo_path: str | None = None
+    require_force_fetch: bool = False
+
+
+@dataclass(frozen=True)
 class RuntimeConfig:
     model: str | None = None
     timeout_s: int | None = None
@@ -29,6 +38,8 @@ class RuntimeConfig:
     openai_base_url: str | None = None
     openai_api_mode: str | None = None
     artifacts_root: str | None = None
+    code_default_repo: str | None = None
+    repos: tuple[RepoConfig, ...] = ()
     mcp_servers: tuple[McpServerConfig, ...] = ()
 
 
@@ -72,12 +83,49 @@ def _parse_mcp_servers(data: dict[str, Any]) -> tuple[McpServerConfig, ...]:
     return tuple(out)
 
 
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if not text:
+        return default
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"invalid boolean value: {value!r}")
+
+
+def _parse_repos(data: dict[str, Any]) -> tuple[RepoConfig, ...]:
+    raw_repos = data.get("repos") or {}
+    if not isinstance(raw_repos, dict):
+        return ()
+
+    out: list[RepoConfig] = []
+    for name, raw in raw_repos.items():
+        if not isinstance(raw, dict):
+            continue
+        out.append(
+            RepoConfig(
+                name=str(name),
+                repo_url=str(raw.get("repo_url") or "").strip() or None,
+                default_ref=str(raw.get("default_ref") or "").strip() or None,
+                repo_path=str(raw.get("repo_path") or "").strip() or None,
+                require_force_fetch=_coerce_bool(raw.get("require_force_fetch"), default=False),
+            )
+        )
+    return tuple(out)
+
+
 def load_runtime_config(path: str | Path | None) -> RuntimeConfig:
     data = _load_toml(path)
 
     runtime = data.get("runtime") or {}
     openai = data.get("openai") or {}
     mcp = data.get("mcp") or {}
+    code = data.get("code") or {}
 
     model = os.environ.get("OPENAI_MODEL") or runtime.get("model")
     timeout_raw = os.environ.get("OPENAI_TIMEOUT_S") or runtime.get("timeout_s")
@@ -97,6 +145,8 @@ def load_runtime_config(path: str | Path | None) -> RuntimeConfig:
         openai_base_url=str(openai_base_url) if openai_base_url else None,
         openai_api_mode=str(openai_api_mode) if openai_api_mode else None,
         artifacts_root=str(artifacts_root) if artifacts_root else None,
+        code_default_repo=str(code.get("default_repo")).strip() if code.get("default_repo") else None,
+        repos=_parse_repos(data),
         mcp_servers=_parse_mcp_servers(data),
     )
 

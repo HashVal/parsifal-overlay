@@ -33,6 +33,8 @@ class ToolInfo:
 
 
 def infer_tool_family(tool: McpTool) -> str:
+    if tool.name.startswith("code_") or tool.server_name == "code":
+        return "code"
     if tool.name.startswith("jira_") or tool.server_name == "jira":
         return "jira"
     if tool.name.startswith("kb_") or tool.server_name == "kb":

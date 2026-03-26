@@ -113,6 +113,14 @@ class _StdioSession:
                 proc.kill()
             except Exception:
                 pass
+        for stream_name in ("stdout", "stderr"):
+            stream = getattr(proc, stream_name, None)
+            if stream is None:
+                continue
+            try:
+                stream.close()
+            except Exception:
+                pass
 
     def list_tools(self) -> list[McpTool]:
         result = self._rpc("tools/list", {})
