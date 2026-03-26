@@ -258,6 +258,105 @@ def _find_symbol_matches(scope: CodeToolScope, symbol: str, *, max_results: int)
     return matches
 
 
+def _tool_code_list_files(args: dict[str, Any]) -> dict[str, Any]:
+    scope = _resolve_scope(args)
+    max_results = int(args.get("max_results", 200))
+    if max_results <= 0:
+        raise ValueError("max_results must be > 0")
+    files = _list_scoped_files(scope, source_only=False)
+    truncated = len(files) > max_results
+    return {
+        "files": files[:max_results],
+        "total_count": len(files),
+        "returned_count": min(len(files), max_results),
+        "truncated": truncated,
+        "provenance": _build_provenance(scope),
+    }
+
+
+def _tool_code_check_path_exists(args: dict[str, Any]) -> dict[str, Any]:
+    scope = _resolve_scope(args)
+    repo_path = _normalize_repo_rel_path(args.get("path"))
+    if scope.path_filters and not _path_matches_filters(repo_path, scope.path_filters):
+        exists = False
+        path_type = "missing"
+    elif scope.language and not _language_allows_path(repo_path, scope.language):
+        exists = False
+        path_type = "missing"
+    else:
+        entries = _run_git_text(scope.repo_path, ["ls-tree", scope.ref, repo_path]).splitlines()
+        exists = False
+        path_type = "missing"
+        for line in entries:
+            parts = line.split(None, 3)
+            if len(parts) != 4:
+                continue
+            obj_type = parts[1]
+            obj_path = parts[3].strip()
+            if obj_path != repo_path:
+                continue
+            exists = True
+            path_type = "dir" if obj_type == "tree" else "file"
+            break
+    return {
+        "path": repo_path,
+        "exists": exists,
+        "path_type": path_type,
+        "provenance": _build_provenance(scope),
+    }
+
+
+def _tool_code_check_path_changed_between_refs(args: dict[str, Any]) -> dict[str, Any]:
+    repo_path_text = str(args.get("repo_path") or "").strip()
+    if not repo_path_text:
+        raise ValueError("repo_path is required")
+    repo_path = Path(repo_path_text).expanduser().resolve()
+    if not repo_path.exists() or not repo_path.is_dir():
+        raise ValueError(f"repo_path does not exist: {repo_path}")
+    git_root = _run_git_text(repo_path, ["rev-parse", "--show-toplevel"])
+    if Path(git_root).resolve() != repo_path:
+        raise ValueError("repo_path must point to the repo/worktree root")
+
+    base_ref = str(args.get("base_ref") or "").strip()
+    target_ref = str(args.get("target_ref") or "").strip()
+    if not base_ref:
+        raise ValueError("base_ref is required")
+    if not target_ref:
+        raise ValueError("target_ref is required")
+    _run_git_text(repo_path, ["rev-parse", "--verify", f"{base_ref}^{{commit}}"])
+    _run_git_text(repo_path, ["rev-parse", "--verify", f"{target_ref}^{{commit}}"])
+
+    path = _normalize_repo_rel_path(args.get("path"))
+    repo = str(args.get("repo") or "").strip() or None
+    diff_text = _run_git_text(repo_path, ["diff", "--name-status", f"{base_ref}..{target_ref}", "--", path])
+    changed_files: list[dict[str, Any]] = []
+    for line in diff_text.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        parts = text.split("\t")
+        if len(parts) < 2:
+            continue
+        status = parts[0]
+        changed_path = parts[-1]
+        changed_files.append({"path": changed_path, "status": status})
+
+    provenance: dict[str, Any] = {
+        "repo_path": str(repo_path),
+        "base_ref": base_ref,
+        "target_ref": target_ref,
+    }
+    if repo:
+        provenance["repo"] = repo
+    return {
+        "path": path,
+        "changed": bool(changed_files),
+        "changed_files": changed_files,
+        "changed_count": len(changed_files),
+        "provenance": provenance,
+    }
+
+
 def _tool_code_search_text(args: dict[str, Any]) -> dict[str, Any]:
     scope = _resolve_scope(args)
     query = str(args.get("query") or "").strip()
@@ -414,6 +513,48 @@ def main() -> None:
         },
         "language": {"type": "string", "description": "Optional language hint used to filter candidate files."},
     }
+    server.add_tool(Tool(
+        name="code_list_files",
+        description="List repo-relative files visible under a resolved local code scope.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                **shared_properties,
+                "max_results": {"type": "integer", "minimum": 1},
+            },
+            "required": ["repo_path", "ref"],
+        },
+        handler=_tool_code_list_files,
+    ))
+    server.add_tool(Tool(
+        name="code_check_path_exists",
+        description="Check whether a repo-relative file or directory exists at a specific ref under the active scope.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                **shared_properties,
+                "path": {"type": "string"},
+            },
+            "required": ["repo_path", "ref", "path"],
+        },
+        handler=_tool_code_check_path_exists,
+    ))
+    server.add_tool(Tool(
+        name="code_check_path_changed_between_refs",
+        description="Check whether a repo-relative path or subtree changed between two refs without returning full patch content.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "repo": {"type": "string", "description": "Logical repo alias for traceability."},
+                "repo_path": {"type": "string", "description": "Absolute path to the local repo/worktree root."},
+                "base_ref": {"type": "string"},
+                "target_ref": {"type": "string"},
+                "path": {"type": "string"},
+            },
+            "required": ["repo_path", "base_ref", "target_ref", "path"],
+        },
+        handler=_tool_code_check_path_changed_between_refs,
+    ))
     server.add_tool(Tool(
         name="code_search_text",
         description="Search repo text under a resolved local code scope without inferring conclusions.",
